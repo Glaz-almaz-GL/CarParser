@@ -7,15 +7,18 @@ using Svg;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Security.AccessControl;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using System.Windows.Forms;
@@ -25,7 +28,9 @@ namespace CarParser
     public partial class Form1 : Form
     {
         IWebDriver driver;
-        Dictionary<string, string> carBrendImages = new Dictionary<string, string>();
+        string downloadFilesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pdfFiles");
+
+        Dictionary<string, string> carImages = new Dictionary<string, string>();
         string DirPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "Images");
         int currentRow = 1; // Свойство для отслеживания текущей строки
 
@@ -39,16 +44,28 @@ namespace CarParser
         {
             try
             {
+                carImages.Clear();
+                currentRow = 1;
+
                 await Task.Run(async () =>
                 {
-                    ChromeOptions options = new ChromeOptions();
-                    options.AddArgument("--headless"); // Запуск в безголовом режиме
-                    options.AddArgument("--disable-gpu"); // Отключает GPU для улучшения производительности в headless режиме
-                    ChromeDriverService service = ChromeDriverService.CreateDefaultService();
-                    service.HideCommandPromptWindow = true;
+                    if (driver == null)
+                    {
+                        ChromeOptions options = new ChromeOptions();
+                        options.AddArgument("--headless"); // Запуск в безголовом режиме
+                        options.AddArgument("--disable-gpu"); // Отключает GPU для улучшения производительности в headless режиме
+                        options.AddUserProfilePreference("download.default_directory", downloadFilesPath);
+                        options.AddUserProfilePreference("download.prompt_for_download", false);
+                        options.AddUserProfilePreference("download.directory_upgrade", true);
+                        options.AddUserProfilePreference("safebrowsing.enabled", true);
 
-                    // Инициализация драйвера с указанием удаленного URL
-                    driver = new ChromeDriver(service, options);
+                        ChromeDriverService service = ChromeDriverService.CreateDefaultService();
+                        service.HideCommandPromptWindow = true;
+
+                        // Инициализация драйвера с указанием удаленного URL
+                        driver = new ChromeDriver(service, options);
+                    }
+
                     HashSet<string> carLinks;
                     HashSet<string> carDescriptionsLinks = new HashSet<string>();
                     carLinks = SearchCarModelsInMain();
@@ -68,7 +85,7 @@ namespace CarParser
                             }
                         }
 
-                        await DownloadBrendImagesAsync(carBrendImages);
+                        await DownloadBrendImagesAsync(carImages);
 
                         // Автоматическое подстраивание ширины столбцов
                         AutoFitColumns(worksheet);
@@ -90,46 +107,126 @@ namespace CarParser
             {
                 // Navigate to the car description page
                 await driver.Navigate().GoToUrlAsync(carDescriptionLink);
+
                 // Wait for the table to load
                 WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
                 wait.Until(d => d.FindElement(By.TagName("table")));
                 var ids = ParseModelAndMakeIds(carDescriptionLink);
-                string modelGroupId = "", makeId = "", modificationId = "";
+                string modelGroupId = "", makeId = "", modificationId = "", fuelType = "";
                 makeId = ids.makeId;
                 modelGroupId = ids.modelGroupId;
+
                 // Поиск контейнера .info-holder
                 IWebElement infoHolder = driver.FindElement(By.ClassName("info-holder"));
+
                 // Извлечение названия из <h2>
                 IWebElement carNameElement = infoHolder.FindElement(By.TagName("h2"));
                 string name = carNameElement.Text.Trim();
                 IWebElement makeNameElement = driver.FindElement(By.ClassName("makeName"));
                 string makeName = makeNameElement.Text.Trim();
+
                 // Получение таблицы
                 IWebElement table = driver.FindElement(By.TagName("table"));
+
                 // Получение всех строк таблицы
                 IList<IWebElement> rows = table.FindElements(By.TagName("tr"));
+
                 // Инициализация списка для хранения данных
                 List<List<string>> data = new List<List<string>>();
-                List<string> modificationsIdData = new List<string>();
+                List<string> modificationIdsData = new List<string>();
+                List<string> modificationFuelTypes = new List<string>();
+
+                Regex repairManualRegex = new Regex(@"https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/repairManuals\?modelId=\w+&groupId=\w+&storyId=\w+(&altView=true&extraInfo=true)?");
+
+                Regex jackLocationRegex = new Regex(@"^\/touch\/site\/layout\/jackingPoints\?modelId=d_\d+");
+                Regex diagnosticConnectorRegex = new Regex(@"^\/touch\/site\/layout\/eobdConnectorLocations\?modelId=d_\d+");
+
+                var idLocationDivs = driver.FindElements(By.ClassName("id-location-div"));
+
+                foreach (var div in idLocationDivs)
+                {
+                    var idLocationBtns = div.FindElements(By.TagName("a"));
+
+                    foreach (var btn in idLocationBtns)
+                    {
+                        string href = btn.GetAttribute("href");
+                        string dataUrl = btn.GetAttribute("data-url");
+
+                        UpdateUI($"HREF: {href} DataURL: {dataUrl}");
+
+                        if (!string.IsNullOrEmpty(dataUrl) && jackLocationRegex.IsMatch(dataUrl))
+                        {
+                            UpdateUI($"({makeName})({name}) {btn.Text} https://www.workshopdata.com{dataUrl}l");
+                            carImages.Add($"({makeName})({name}) {btn.Text}", "https://www.workshopdata.com" + dataUrl);
+                        }
+                        if (!string.IsNullOrEmpty(dataUrl) && diagnosticConnectorRegex.IsMatch(dataUrl))
+                        {
+                            UpdateUI($"({makeName})({name}) {btn.Text} https://www.workshopdata.com{dataUrl}");
+                            carImages.Add($"({makeName})({name}) {btn.Text}", "https://www.workshopdata.com" + dataUrl);
+                        }
+
+                        if (!string.IsNullOrEmpty(href) && repairManualRegex.IsMatch(href))
+                        {
+                            UpdateUI($"({makeName})({name}) {btn.Text} {href}");
+                            carImages.Add($"({makeName})({name})  {btn.Text}", href);
+                        }
+                    }
+                }
+
                 // Проход по строкам
                 foreach (IWebElement row in rows)
                 {
                     string rawId = row.GetAttribute("data-url");
                     modificationId = ExtractTypeId(rawId);
-                    UpdateUI($"Id марки: {makeId}, Id модели: {modelGroupId}, Id модификации: {modificationId}");
+                    string fuelClassType = row.GetAttribute("class");
+
+                    switch (fuelClassType)
+                    {
+                        case "petrol":
+                            fuelType = "Бензин";
+                            break;
+
+                        case "diesel":
+                            fuelType = "Дизель";
+                            break;
+
+                        case "cng":
+                            fuelType = "Природный газ";
+                            break;
+
+                        case "hydrogen":
+                            fuelType = "Водород";
+                            break;
+
+                        case "electric":
+                            fuelType = "Электроэнергия";
+                            break;
+
+                        case "hybrid":
+                            fuelType = "Гибрид";
+                            break;
+                    }
+
+                    UpdateUI($"Id марки: {makeId}, Id модели: {modelGroupId}, Id модификации: {modificationId}, Тип топлива модификации: {fuelType}");
+
                     // Получение ячеек (<td>) в текущей строке
                     IList<IWebElement> cells = row.FindElements(By.TagName("td"));
+
                     // Создание списка для хранения данных текущей строки
                     List<string> rowData = new List<string>();
+
                     // Проход по ячейкам и извлечение текста
                     foreach (IWebElement cell in cells)
                     {
                         rowData.Add(cell.Text.Trim());
                     }
-                    modificationsIdData.Add(modificationId);
+                    modificationFuelTypes.Add(fuelType);
+                    modificationIdsData.Add(modificationId);
+
                     // Добавление данных строки в общий список
                     data.Add(rowData);
                 }
+
                 // Запись данных в Excel
                 if (currentRow == 1)
                 {
@@ -141,13 +238,15 @@ namespace CarParser
                         worksheet.Cell(currentRow, i + 3).Value = headerRow[i].Text.Trim(); // Смещаем на 1 колонку вправо
                         lastI = i;
                     }
+
                     // Добавляем заголовок для нового столбца: "Модель"
                     worksheet.Cell(currentRow, 1).Value = "Изготовитель";
                     worksheet.Cell(currentRow, 2).Value = "Модель";
-                    worksheet.Cell(currentRow, lastI + 4).Value = "Id марки";
-                    worksheet.Cell(currentRow, lastI + 5).Value = "Id модели";
-                    worksheet.Cell(currentRow, lastI + 6).Value = "Id модификации";
-                    worksheet.Cell(currentRow, lastI + 7).Value = "Путь до изображения марки";
+                    worksheet.Cell(currentRow, lastI + 4).Value = "Тип топлива";
+                    worksheet.Cell(currentRow, lastI + 5).Value = "Id марки";
+                    worksheet.Cell(currentRow, lastI + 6).Value = "Id модели";
+                    worksheet.Cell(currentRow, lastI + 7).Value = "Id модификации";
+                    worksheet.Cell(currentRow, lastI + 8).Value = "Путь до изображения марки";
                     currentRow++;
                 }
                 for (int i = 1; i < data.Count; i++)
@@ -161,10 +260,11 @@ namespace CarParser
                         worksheet.Cell(currentRow + i, j + 3).Value = data[i][j]; // Смещаем на 1 колонку вправо
                         lastJ = j;
                     }
-                    worksheet.Cell(currentRow + i, lastJ + 4).Value = makeId;
-                    worksheet.Cell(currentRow + i, lastJ + 5).Value = modelGroupId;
-                    worksheet.Cell(currentRow + i, lastJ + 6).Value = modificationsIdData[i];
-                    worksheet.Cell(currentRow + i, lastJ + 7).Value = Path.Combine(DirPath, makeName.ToUpper(), $"{makeName}.ico");
+                    worksheet.Cell(currentRow + i, lastJ + 4).Value = fuelType;
+                    worksheet.Cell(currentRow + i, lastJ + 5).Value = makeId;
+                    worksheet.Cell(currentRow + i, lastJ + 6).Value = modelGroupId;
+                    worksheet.Cell(currentRow + i, lastJ + 7).Value = modificationIdsData[i];
+                    worksheet.Cell(currentRow + i, lastJ + 8).Value = Path.Combine(DirPath, makeName.ToUpper(), $"{makeName}.png");
                 }
                 currentRow += data.Count;
             }
@@ -211,7 +311,7 @@ namespace CarParser
             UpdateUI("Поиск всех элементов <a>...");
             var links = driver.FindElements(By.TagName("a"));
 
-            Regex regex = new Regex(@"^https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/modelTypes\?modelGroupId=dg_\d+&makeId=m_\d+");
+            Regex descriptionRegex = new Regex(@"^https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/modelTypes\?modelGroupId=dg_\d+&makeId=m_\d+");
 
             foreach (var link in links)
             {
@@ -231,21 +331,15 @@ namespace CarParser
 
                     if (!string.IsNullOrEmpty(imgName) && !string.IsNullOrEmpty(imgUrl))
                     {
-                        carBrendImages.Add(imgName, imgUrl);
+                        carImages.Add(imgName, imgUrl);
+                    }
+
+                    if (!string.IsNullOrEmpty(href) && href != "#" && descriptionRegex.IsMatch(href))
+                    {
+                        carDescriptionsLinks.Add(href);
                     }
                 }
-
-
-                if (!string.IsNullOrEmpty(href) && href != "#" && regex.IsMatch(href))
-                {
-                    carDescriptionsLinks.Add(href);
-                }
             }
-
-            //foreach (var carDescriptionLink in carDescriptionsLinks)
-            //{
-            //    UpdateUI(carDescriptionLink);
-            //}
         }
 
         private HashSet<string> SearchCarModelsInMain()
@@ -275,9 +369,9 @@ namespace CarParser
                 {
                     string imgName = imgNameElements[i].Text;
                     string imgUrl = imgUrlElements[i].GetAttribute("src");
-                    if (!string.IsNullOrEmpty(imgName) && !string.IsNullOrEmpty(imgUrl) && !carBrendImages.ContainsKey(imgName))
+                    if (!string.IsNullOrEmpty(imgName) && !string.IsNullOrEmpty(imgUrl) && !carImages.ContainsKey(imgName))
                     {
-                        carBrendImages.Add(imgName, imgUrl);
+                        carImages.Add(imgName, imgUrl);
                         UpdateUI($"Номер изображения: {i + 1}, Название изображения: {imgName}, Адрес изображения: {imgUrl}");
                     }
                     else
@@ -371,43 +465,82 @@ namespace CarParser
                         // Очищаем имя файла от недопустимых символов
                         string safeFileName = Regex.Replace(imgName, @"[\\/:*?""<>|]", "_");
 
-                        // Отправляем запрос для получения изображения
-                        HttpResponseMessage response = await client.GetAsync(imgUrl);
+                        UpdateUI($"Image URL: {imgUrl}");
 
-                        // Убедимся, что запрос был успешным
-                        response.EnsureSuccessStatusCode();
-                        string debugMsg = response.IsSuccessStatusCode ? "Запрос был успешен" : "Запрос не был успешен";
-                        UpdateUI(debugMsg);
+                        Regex jackLocationRegex = new Regex(@"^https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/jackingPoints\?modelId=d_\d+");
+                        Regex diagnosticConnectorRegex = new Regex(@"^https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/eobdConnectorLocations\?modelId=d_\d+");
+                        Regex repairManualRegex = new Regex(@"https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/repairManuals\?modelId=\w+&groupId=\w+&storyId=\w+(&altView=true&extraInfo=true)?");
 
-                        // Читаем содержимое ответа как массив байтов
-                        byte[] imageData = await response.Content.ReadAsByteArrayAsync();
-
-                        // Записываем массив байтов в файл
-                        string destinationGzipPath = Path.Combine(brandDirPath, safeFileName + ".svg.gzip");
-                        File.WriteAllBytes(destinationGzipPath, imageData);
-
-                        // Распаковываем GZIP файл
-                        string destinationSvgPath = Path.Combine(brandDirPath, safeFileName + ".svg");
-                        using (FileStream gzipStream = new FileStream(destinationGzipPath, FileMode.Open))
-                        using (GZipStream decompressionStream = new GZipStream(gzipStream, CompressionMode.Decompress))
-                        using (FileStream outputStream = new FileStream(destinationSvgPath, FileMode.Create))
+                        if (!string.IsNullOrEmpty(imgUrl) && jackLocationRegex.IsMatch(imgUrl))
                         {
-                            await decompressionStream.CopyToAsync(outputStream);
+                            await driver.Navigate().GoToUrlAsync(imgUrl);
+
+                            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
+
+                            wait.Until(d => d.FindElements(By.ClassName("jackingPointsImg")));
+
+                            var imgs = driver.FindElements(By.ClassName("jackingPointsImg"));
+
+                            foreach (var img in imgs)
+                            {
+                                imgUrl = img.GetAttribute("src");
+                            }
                         }
 
-                        // Конвертируем SVG файл в PNG
-                        string destinationPngPath = Path.Combine(brandDirPath, safeFileName + ".png");
-                        SvgDocument svgDoc = SvgDocument.Open(destinationSvgPath);
-
-                        using (Bitmap bitmap = svgDoc.Draw())
+                        if (!string.IsNullOrEmpty(imgUrl) && diagnosticConnectorRegex.IsMatch(imgUrl))
                         {
-                            bitmap.Save(destinationPngPath, ImageFormat.Png);
-                        }
-                        UpdateUI($"Конвертация {destinationSvgPath} to {destinationPngPath}");
-                        // Удаляем временные файлы
-                        File.Delete(destinationGzipPath);
-                        File.Delete(destinationSvgPath);
+                            await driver.Navigate().GoToUrlAsync(imgUrl);
 
+                            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(30));
+
+                            wait.Until(d => d.FindElements(By.ClassName("eobdConnectorImg")));
+
+                            var imgs = driver.FindElements(By.ClassName("eobdConnectorImg"));
+
+                            foreach (var img in imgs)
+                            {
+                                imgUrl = img.GetAttribute("src");
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(imgUrl) && repairManualRegex.IsMatch(imgUrl))
+                        {
+                            try
+                            {
+
+                                int index = imgUrl.IndexOf("repairManuals");
+                                string imgDownloadUrl = "";
+
+                                if (index != -1)
+                                {
+                                    imgDownloadUrl = imgUrl.Substring(0, index + "repairManuals".Length) + "Print" + imgUrl.Substring(index + "repairManuals".Length);
+                                }
+
+                                await driver.Navigate().GoToUrlAsync(imgDownloadUrl);
+
+
+                                string[] files = Directory.GetFiles(downloadFilesPath);
+                                string downloadedFilePath = files[files.Length - 1];
+
+                                while (downloadedFilePath.Contains(".tmp") || downloadedFilePath.Contains(".crdownload"))
+                                {
+                                    files = Directory.GetFiles(downloadFilesPath);
+                                    downloadedFilePath = files[files.Length - 1];
+
+                                    await Task.Delay(3000);
+                                }
+
+                                // Переименование файла
+                                string newFileName = safeFileName + ".pdf";
+                                string newFilePath = Path.Combine(brandDirPath, newFileName);
+                                File.Move(downloadedFilePath, newFilePath);
+                            }
+                            catch (Exception ex) { UpdateUI(ex.Message); }
+
+                            continue;
+                        }
+
+                        await ConvertGZIPAsync(client, imgUrl, brandDirPath, safeFileName);
                     }
                 }
             }
@@ -415,12 +548,47 @@ namespace CarParser
             {
                 UpdateUI($"Произошла ошибка: {ex.Message}");
             }
-            UpdateUI("Скачивание и конвертирование изображений марок завершено");
+            UpdateUI("Скачивание и конвертирование изображений завершено");
         }
 
-        private void SetFileAttributes(string path, FileAttributes attributes)
+        private async Task ConvertGZIPAsync(HttpClient client, string imgUrl, string brandDirPath, string safeFileName)
         {
-            File.SetAttributes(path, attributes);
+            // Отправляем запрос для получения изображения
+            HttpResponseMessage response = await client.GetAsync(imgUrl);
+
+            // Убедимся, что запрос был успешным
+            response.EnsureSuccessStatusCode();
+            string debugMsg = response.IsSuccessStatusCode ? "Запрос был успешен" : "Запрос не был успешен";
+            UpdateUI(debugMsg);
+
+            // Читаем содержимое ответа как массив байтов
+            byte[] imageData = await response.Content.ReadAsByteArrayAsync();
+
+            // Записываем массив байтов в файл
+            string destinationGzipPath = Path.Combine(brandDirPath, safeFileName + ".svg.gzip");
+            File.WriteAllBytes(destinationGzipPath, imageData);
+
+            // Распаковываем GZIP файл
+            string destinationSvgPath = Path.Combine(brandDirPath, safeFileName + ".svg");
+            using (FileStream gzipStream = new FileStream(destinationGzipPath, FileMode.Open))
+            using (GZipStream decompressionStream = new GZipStream(gzipStream, CompressionMode.Decompress))
+            using (FileStream outputStream = new FileStream(destinationSvgPath, FileMode.Create))
+            {
+                await decompressionStream.CopyToAsync(outputStream);
+            }
+
+            // Конвертируем SVG файл в PNG
+            string destinationPngPath = Path.Combine(brandDirPath, safeFileName + ".png");
+            SvgDocument svgDoc = SvgDocument.Open(destinationSvgPath);
+
+            using (Bitmap bitmap = svgDoc.Draw())
+            {
+                bitmap.Save(destinationPngPath, ImageFormat.Png);
+            }
+            UpdateUI($"Конвертация {destinationSvgPath} to {destinationPngPath}");
+            // Удаляем временные файлы
+            File.Delete(destinationGzipPath);
+            File.Delete(destinationSvgPath);
         }
 
         private void UpdateUI(string message)
