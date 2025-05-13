@@ -191,15 +191,19 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Parser\FilesParser.cs" />
+    <Compile Include="Parser\TransportModificationDescriptionData.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
-    <Compile Include="TransportParser.cs">
-      <SubType>Form</SubType>
-    </Compile>
+    <Compile Include="Parser\TransportBrandData.cs" />
+    <Compile Include="Parser\ParserData.cs" />
+    <Compile Include="Parser\SiteData.cs" />
+    <Compile Include="Parser\TransportData.cs" />
+    <Compile Include="Parser\TransportModelData.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Form1.resx">
