@@ -16,17 +16,18 @@ namespace CarParser
         string SiteLink { get; }
         string CacheFolderPath { get; }
 
+        Dictionary<TransportTypes, string> SiteInfo { get; }
+
         public IWebDriver Driver { get; }
 
         WebDriverWait DriverWait { get; }
 
-        TransportType TransportType { get; }
-
-        public ParserData(TransportType transportType, string name, string siteLink)
+        public ParserData(string name, string siteLink, Dictionary<TransportTypes, string> siteInfo)
         {
-            TransportType = transportType;
+            //TransportType = transportType;
             Name = name;
             SiteLink = siteLink;
+            SiteInfo = siteInfo;
 
             CacheFolderPath = Path.Combine(Path.GetTempPath(), $"{Name} Parser", "Download");
 
@@ -48,9 +49,14 @@ namespace CarParser
             CreateSiteData();
         }
 
+        public void GetParserData(ref string name)
+        {
+            name = Name;
+        }
+
         private void CreateSiteData()
         {
-            SiteData siteData = new SiteData(TransportType, Driver, CacheFolderPath, DriverWait, Name, SiteLink);
+            SiteData siteData = new SiteData(Driver, CacheFolderPath, DriverWait, Name, SiteLink, SiteInfo);
 
             if (Sites == null)
             {
@@ -67,11 +73,13 @@ namespace CarParser
         public List<SiteData> Sites { get; private set; }
     }
 
-    public enum TransportType
+    public enum TransportTypes
     {
         None,
         Car,
         Motorcycle,
-        Truck
+        Truck,
+        Trailer,
+        Axel
     }
 }

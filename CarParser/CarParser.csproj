@@ -191,7 +191,8 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Parser\FilesParser.cs" />
+    <Compile Include="DebugLog.cs" />
+    <Compile Include="Parser\FilesDownloader.cs" />
     <Compile Include="Parser\TransportModificationDescriptionData.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>

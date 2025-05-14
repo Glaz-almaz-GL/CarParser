@@ -9,8 +9,9 @@ namespace CarParser
 {
     public class SiteData
     {
-        TransportType TransportType { get; }
         IWebDriver Driver { get; }
+
+        Dictionary<TransportTypes, string> TransportInfo { get; }
 
         string CacheFolderPath { get; }
 
@@ -20,31 +21,30 @@ namespace CarParser
         string Link { get; }
 
 
-        public SiteData(TransportType transportType, IWebDriver driver, string cacheFolderPath, WebDriverWait driverWait, string name, string link)
+        public SiteData(IWebDriver driver, string cacheFolderPath, WebDriverWait driverWait, string name, string siteLink, Dictionary<TransportTypes, string> transportInfo)
         {
-            TransportType = transportType;
             Driver = driver;
             CacheFolderPath = cacheFolderPath;
             DriverWait = driverWait;
             Name = name;
-            Link = link;
+            Link = siteLink;
+            TransportInfo = transportInfo;
 
             CreateTransportData();
         }
 
         private void CreateTransportData()
         {
-            TransportData transport = new TransportData(TransportType, Driver, CacheFolderPath, DriverWait, Link);
-            if (Transports == null)
+            foreach (var transportData in TransportInfo)
             {
-                Transports = new List<TransportData>();
-            }
-            else
-            {
-                Transports.Clear();
-            }
+                TransportData transport = new TransportData(transportData.Key, Driver, Name, CacheFolderPath, DriverWait, transportData.Value);
+                if (Transports == null)
+                {
+                    Transports = new List<TransportData>();
+                }
 
-            Transports.Add(transport);
+                Transports.Add(transport);
+            }
         }
 
         public void GetSiteData(ref string name, ref string siteLink)
@@ -52,7 +52,7 @@ namespace CarParser
             name = Name;
             siteLink = Link;
 
-            Console.WriteLine($"Site Name: {Name}, Site Link: {Link}");
+            Console.WriteLine($"Log (SiteData.cs): Site Name: {Name}, Site Link: {Link}");
         }
 
         public List<TransportData> Transports { get; private set; }

@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static CarParser.DebugLog;
 
 namespace CarParser
 {
@@ -17,8 +18,8 @@ namespace CarParser
 
         IWebDriver Driver { get; }
         WebDriverWait DriverWait { get; }
-
-        FilesParser FilesParser { get; }
+        FilesDownloader FilesParser { get; }
+        TransportTypes TransportType { get; }
 
         string Domain { get; }
 
@@ -27,22 +28,23 @@ namespace CarParser
         string ImageLink { get; }
         string BrandPageLink { get; }
 
-        public TransportBrandData(IWebDriver driver, WebDriverWait driverWait, FilesParser filesParser, string domain, string id, string name, string imageLink, string brandPageLink)
+        public TransportBrandData(IWebDriver driver, WebDriverWait driverWait, FilesDownloader filesParser, TransportTypes transportType, string domain, string id, string name, string imageLink, string brandPageLink)
         {
             Domain = domain;
             Id = id;
             Driver = driver;
             DriverWait = driverWait;
+            TransportType = transportType;
             Name = name;
             ImageLink = imageLink;
             BrandPageLink = brandPageLink;
 
             FilesParser = filesParser;
 
-            //_ = GetAllModels();
+            GetAllTransportModels();
         }
 
-        public void GetAllModels()
+        public void GetAllTransportModels()
         {
             List<TempTransportModelData> tempTransportModelDatas = new List<TempTransportModelData>();
             Dictionary<string, string> transportImageDatas = new Dictionary<string, string>();
@@ -51,50 +53,48 @@ namespace CarParser
             {
                 Driver.Navigate().GoToUrl(BrandPageLink);
 
-                Console.WriteLine($"BrandPageLink: {BrandPageLink}");
+                var TransportModels = Driver.FindElements(By.ClassName("tiles"));
 
-                //UpdateUI("Ожидание загрузки всех ссылок...");
-                DriverWait.Until(d => d.FindElements(By.ClassName("tile")).Count > 0);
-
-                var CarModels = Driver.FindElements(By.ClassName("tile"));
-
-                foreach (var carModel in CarModels)
+                foreach (var transportModel in TransportModels)
                 {
-                    var btn = carModel.FindElement(By.TagName("a"));
+                    var buttons = transportModel.FindElements(By.TagName("a"));
 
-                    string carModelName = btn.FindElement(By.TagName("p")).Text;
-
-                    var divImgWrap = btn.FindElement(By.ClassName("imgWrap"));
-                    var carModelImageElement = divImgWrap.FindElement(By.ClassName("model-group-image"));
-
-                    string carModelImageLink = carModelImageElement.GetAttribute("src");
-
-                    if (!transportImageDatas.ContainsKey($"({Name})" + carModelName))
+                    foreach (var btn in buttons)
                     {
-                        transportImageDatas.Add($"({Name})" + carModelName, carModelImageLink);
-                    }
+                        string transportModelName = btn.FindElement(By.TagName("p")).Text;
 
-                    if (!string.IsNullOrEmpty(btn.GetAttribute("href")) && btn.GetAttribute("href") != "#" && btn.GetAttribute("href").Contains("modelGroupId"))
-                    {
-                        string carModelPageLink = btn.GetAttribute("href");
+                        var divImgWrap = btn.FindElement(By.ClassName("imgWrap"));
+                        var transportModelImageElement = divImgWrap.FindElement(By.ClassName("model-group-image"));
 
-                        TempTransportModelData tempTransportModelData = new TempTransportModelData();
+                        string transportModelImageLink = transportModelImageElement.GetAttribute("src");
 
-                        tempTransportModelData.ModelName = carModelName;
-                        tempTransportModelData.ModelImageLink = carModelImageLink;
-                        tempTransportModelData.ModelPageLink = carModelPageLink;
+                        if (!transportImageDatas.ContainsKey($"({Name}) " + transportModelName))
+                        {
+                            transportImageDatas.Add($"({Name}) " + transportModelName, transportModelImageLink);
+                        }
 
-                        tempTransportModelDatas.Add(tempTransportModelData);
+                        if (!string.IsNullOrEmpty(btn.GetAttribute("href")) && btn.GetAttribute("href") != "#" && btn.GetAttribute("href").Contains("Id"))
+                        {
+                            string transportModelPageLink = btn.GetAttribute("href");
+
+                            TempTransportModelData tempTransportModelData = new TempTransportModelData();
+
+                            tempTransportModelData.ModelName = transportModelName;
+                            tempTransportModelData.ModelImageLink = transportModelImageLink;
+                            tempTransportModelData.ModelPageLink = transportModelPageLink;
+
+                            tempTransportModelDatas.Add(tempTransportModelData);
+                        }
                     }
                 }
             }
             catch (WebDriverException ex)
             {
-                Console.WriteLine($"WebDriverException: {ex.Message}");
+                UpdateUI($"WebDriverException (TransportBrandData.cs): {ex.Message}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Exception: {ex.Message}");
+                UpdateUI($"Exception (TransportBrandData.cs): {ex.Message}");
             }
 
             foreach (var transportImageData in transportImageDatas)
@@ -109,8 +109,7 @@ namespace CarParser
 
         private void CreateTransportData(string ModelName, string ModelImageLink, string ModelPageLink)
         {
-            TransportModelData transportModel = new TransportModelData(Driver, DriverWait, FilesParser, Domain, Name, ModelName, ModelImageLink, ModelPageLink);
-            transportModel.GetFullModelDescription();
+            TransportModelData transportModel = new TransportModelData(Driver, DriverWait, FilesParser, Domain, TransportType, Name, ModelName, ModelImageLink, ModelPageLink);
 
             if (TransportModels == null)
             {
@@ -125,7 +124,7 @@ namespace CarParser
             brandName = Name;
             brandPageLink = BrandPageLink;
 
-            Console.WriteLine($"Brand Id: {Id}, Brand Name: {Name}, Brand Page Link: {BrandPageLink}");
+            UpdateUI($"Log (TransportBrandData.cs): Brand Id: {Id}, Brand Name: {Name}, Brand Page Link: {BrandPageLink}");
         }
 
         public List<TransportModelData> TransportModels { get; private set; }

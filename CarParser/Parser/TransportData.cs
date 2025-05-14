@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using static OpenQA.Selenium.VirtualAuth.VirtualAuthenticatorOptions;
+using static CarParser.DebugLog;
 
 namespace CarParser
 {
@@ -18,15 +19,15 @@ namespace CarParser
 
         WebDriverWait DriverWait { get; }
 
-        FilesParser FilesParser { get; }
+        FilesDownloader FilesParser { get; }
 
         public string Domain { get; private set; }
 
-        TransportType TransportType { get; }
+        TransportTypes TransportType { get; }
 
         string SiteLink { get; }
 
-        public TransportData(TransportType transportType, IWebDriver driver, string CacheFolderPath, WebDriverWait driverWait, string siteLink)
+        public TransportData(TransportTypes transportType, IWebDriver driver, string ParserName, string CacheFolderPath, WebDriverWait driverWait, string siteLink)
         {
             Driver = driver;
             DriverWait = driverWait;
@@ -36,12 +37,12 @@ namespace CarParser
             Uri uri = new Uri(SiteLink);
             Domain = uri.GetLeftPart(UriPartial.Authority);
 
-            FilesParser = new FilesParser(Driver, CacheFolderPath, "CarExportedImages");
+            FilesParser = new FilesDownloader(Driver, ParserName, CacheFolderPath, $"{transportType.ToString()}ExportedImages");
 
-            GetAllBrands();
+            GetAllTransportBrands();
         }
 
-        private void GetAllBrands()
+        private void GetAllTransportBrands()
         {
             List<TempTransportBrandData> tempTransportBrandDatas = new List<TempTransportBrandData>();
             Dictionary<string, string> brandImageDatas = new Dictionary<string, string>();
@@ -51,94 +52,134 @@ namespace CarParser
                 HashSet<string> brands = new HashSet<string>();
 
                 Driver.Navigate().GoToUrl(SiteLink);
-                IWebElement demoButton = Driver.FindElement(By.XPath("//input[@value='Демо']"));
-                demoButton.Click();
+
+                if (Driver.FindElements(By.XPath("//input[@value='Демо']")).Count > 0)
+                {
+                    IWebElement demoButton = Driver.FindElement(By.XPath("//input[@value='Демо']"));
+                    demoButton.Click();
+                }
 
                 Driver.Navigate().GoToUrl(SiteLink);
 
-                UpdateUI("Ожидание загрузки всех ссылок...");
+                UpdateUI("Log (TransportData.cs): Ожидание загрузки всех ссылок...");
                 DriverWait.Until(d => d.FindElements(By.TagName("a")).Count > 0);
 
-                var brandElements = Driver.FindElements(By.ClassName("tile"));
+                var brandSections = Driver.FindElements(By.Id("makes"));
 
-                UpdateUI($"Всего брендов: {brandElements.Count}");
-
-                for (int i = 0; i < brandElements.Count; i++)
+                if (TransportType == TransportTypes.Truck)
                 {
-                    var brandHrefElement = brandElements[i].FindElement(By.TagName("a"));
-                    var imgUrlElement = brandElements[i].FindElement(By.ClassName("make-logo-big"));
+                    brandSections = Driver.FindElements(By.Id("makeTrucks"));
+                }
+                else if (TransportType == TransportTypes.Trailer)
+                {
+                    var TrailerBtn = Driver.FindElement(By.ClassName("select-trailer"));
+                    TrailerBtn.Click();
 
-                    string brandName = brandElements[i].Text;
-                    string brandImgUrl = imgUrlElement.GetAttribute("src");
+                    brandSections = Driver.FindElements(By.Id("makeTrailers"));
+                }
+                else if (TransportType == TransportTypes.Axel)
+                {
+                    var AxelBtn = Driver.FindElement(By.ClassName("select-axle"));
+                    AxelBtn.Click();
 
-                    if (!brandImageDatas.ContainsKey(brandName))
+                    brandSections = Driver.FindElements(By.Id("makeAxels"));
+                }
+
+                foreach (var section in brandSections)
+                {
+                    var brandElements = section.FindElements(By.ClassName("tile"));
+
+                    UpdateUI($"Log (TransportData.cs): Всего брендов: {brandElements.Count}");
+
+                    foreach (var brand in brandElements)
                     {
-                        brandImageDatas.Add(brandName, brandImgUrl);
-                    }
+                        var brandHrefElement = brand.FindElement(By.TagName("a"));
+                        var imgUrlElement = brand.FindElement(By.ClassName("make-logo-big"));
 
-                    UpdateUI($"Name: {brandName}, ImgURL: {brandImgUrl}");
+                        string brandName = "";
 
-                    string brandPageLink = brandHrefElement.GetAttribute("href");
+                        if (TransportType == TransportTypes.Trailer || TransportType == TransportTypes.Axel)
+                        {
+                            brandName = brandHrefElement.Text.Trim();
+                        }
+                        else
+                        {
+                            brandName = brand.Text.Trim();
+                        }
 
-                    if (!string.IsNullOrEmpty(brandPageLink) && brandPageLink != "#" && brandPageLink.Contains("makeId") && !brands.Contains(brandName))
-                    {
-                        string Id = GetMakeId(brandPageLink);
-                        brands.Add(brandName);
+                        string brandImgUrl = imgUrlElement.GetAttribute("src");
 
-                        TempTransportBrandData tempTransportBrandData = new TempTransportBrandData();
+                        if (!brandImageDatas.ContainsKey(brandName))
+                        {
+                            brandImageDatas.Add(brandName, brandImgUrl);
+                        }
 
-                        tempTransportBrandData.Id = Id;
-                        tempTransportBrandData.Name = brandName;
-                        tempTransportBrandData.ImageLink = brandImgUrl;
-                        tempTransportBrandData.brandPageLink = brandPageLink;
+                        string brandPageLink = brandHrefElement.GetAttribute("href");
 
-                        tempTransportBrandDatas.Add(tempTransportBrandData);
+                        UpdateUI($"Log (TransportData.cs): Name: {brandName}, ImgURL: {brandImgUrl}, BrandPageLink: {brandPageLink}");
+
+                        if (!string.IsNullOrEmpty(brandPageLink) && brandPageLink != "#" && brandPageLink.Contains("makeId") && !brands.Contains(brandName))
+                        {
+                            string Id = GetMakeId(brandPageLink);
+                            brands.Add(brandName);
+
+                            TempTransportBrandData tempTransportBrandData = new TempTransportBrandData();
+
+                            tempTransportBrandData.Id = Id;
+                            tempTransportBrandData.Name = brandName;
+                            tempTransportBrandData.ImageLink = brandImgUrl;
+                            tempTransportBrandData.brandPageLink = brandPageLink;
+
+                            tempTransportBrandDatas.Add(tempTransportBrandData);
+                        }
                     }
                 }
             }
             catch (NoSuchElementException ex)
             {
-                UpdateUI($"Ошибка: Элемент не найден - {ex.Message}");
+                UpdateUI($"(TransportData.cs): Ошибка: Элемент не найден - {ex.Message}");
             }
             catch (TimeoutException ex)
             {
-                UpdateUI($"Ошибка: Таймаут ожидания - {ex.Message}");
+                UpdateUI($"(TransportData.cs): Ошибка: Таймаут ожидания - {ex.Message}");
             }
             catch (WebDriverException ex)
             {
-                UpdateUI($"Ошибка WebDriver: {ex.Message}");
+                UpdateUI($"(TransportData.cs): Ошибка WebDriver: {ex.Message}");
             }
             catch (Exception ex)
             {
-                UpdateUI($"Неизвестная ошибка: {ex.Message}");
+                UpdateUI($"(TransportData.cs): Неизвестная ошибка: {ex.Message}");
             }
 
-            UpdateUI("Начинается экспорт изображений брендов");
+            UpdateUI("(TransportData.cs): Начинается экспорт изображений брендов");
             foreach (var imageData in brandImageDatas)
             {
                 FilesParser.ExportImageFile(imageData.Key, imageData.Value);
             }
-            UpdateUI("Экспорт изображений марок завершён");
+            UpdateUI("(TransportData.cs): Экспорт изображений марок завершён");
 
-            UpdateUI("Начинается создание модели брендов");
+            UpdateUI("(TransportData.cs): Начинается создание модели брендов");
             foreach (var transportBrandData in tempTransportBrandDatas)
             {
                 CreateTransportBrandData(transportBrandData.Id, transportBrandData.Name, transportBrandData.ImageLink, transportBrandData.brandPageLink);
             }
-            UpdateUI("Создание модели брендов завершено");
+            UpdateUI("(TransportData.cs): Создание модели брендов завершено");
         }
 
         private void CreateTransportBrandData(string Id, string Name, string ImageLink, string brandPageLink)
         {
-            TransportBrandData brand = new TransportBrandData(Driver, DriverWait, FilesParser, Domain, Id, Name, ImageLink, brandPageLink);
-            brand.GetAllModels();
+            TransportBrandData brand = new TransportBrandData(Driver, DriverWait, FilesParser, TransportType, Domain, Id, Name, ImageLink, brandPageLink);
 
             if (Brands == null)
             {
-                Brands = new HashSet<TransportBrandData>();
+                Brands = new List<TransportBrandData>();
             }
 
-            Brands.Add(brand);
+            if (!Brands.Contains(brand))
+            {
+                Brands.Add(brand);
+            }
         }
 
         public static string GetMakeId(string url)
@@ -153,19 +194,14 @@ namespace CarParser
             return makeId;
         }
 
-        static void UpdateUI(string message)
-        {
-            Console.WriteLine($"[{DateTime.UtcNow}] " + message);
-        }
-
-        public void GetTransportData(ref TransportType transportType)
+        public void GetTransportData(ref TransportTypes transportType)
         {
             transportType = TransportType;
 
-            Console.WriteLine($"Transport Type: {TransportType}, Site Link: {SiteLink}");
+            UpdateUI($"Log (TransportData.cs): Transport Type: {TransportType}, Site Link: {SiteLink}");
         }
 
-        public HashSet<TransportBrandData> Brands { get; private set; }
+        public List<TransportBrandData> Brands { get; private set; }
 
         public class TempTransportBrandData
         {

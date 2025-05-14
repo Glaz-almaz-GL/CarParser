@@ -15,18 +15,21 @@ using System.IO.Compression;
 using Svg;
 using System.Drawing.Imaging;
 using OpenQA.Selenium.Chrome;
+using static CarParser.DebugLog;
 
 namespace CarParser.Parser
 {
-    public class FilesParser
+    public class FilesDownloader
     {
         private IWebDriver Driver { get; }
-        private readonly string DirPath;
-        private readonly string CacheFolderPath;
+        private string ParserName { get; }
+        private string DirPath;
+        private string CacheFolderPath { get; }
 
-        public FilesParser(IWebDriver driver, string cacheFolderPath, string folderName)
+        public FilesDownloader(IWebDriver driver, string parserName, string cacheFolderPath, string folderName)
         {
-            DirPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), folderName);
+            ParserName = parserName;
+            DirPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"Parser ({ParserName})", folderName);
             Driver = driver;
 
             CacheFolderPath = cacheFolderPath;
@@ -34,25 +37,36 @@ namespace CarParser.Parser
             Directory.CreateDirectory(CacheFolderPath);
         }
 
-        public void ExportImageFile(string ImageName, string ImageURL)
+        public void ExportImageFile(string ImageName, string ImageURL, string folderName = "")
         {
+            if (!string.IsNullOrEmpty(folderName))
+            {
+                DirPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"Parser ({ParserName})", folderName);
+            }
+
             try
             {
                 using (HttpClient client = new HttpClient())
                 {
                     Directory.CreateDirectory(DirPath);
 
-                    UpdateUI($"Название изображения: {ImageName}, Ссылка на изображение: {ImageURL}");
+                    UpdateUI($"Log (FilesDownloader.cs): Название изображения: {ImageName}, Ссылка на изображение: {ImageURL}");
 
                     // Извлекаем имя бренда из имени файла
                     string brandName = ImageName.Split(')')[0].Trim('(', ' ');
 
                     string brandDirPath = Path.Combine(DirPath, brandName.ToUpper());
 
-                    Directory.CreateDirectory(brandDirPath);
-
                     // Очищаем имя файла от недопустимых символов
                     string safeFileName = Regex.Replace(ImageName, @"[\\/:*?""<>|]", "_");
+
+                    if (File.Exists(Path.Combine(brandDirPath, safeFileName + ".png")) || File.Exists(Path.Combine(brandDirPath, safeFileName + ".pdf")))
+                    {
+                        UpdateUI($"Log (FilesDownloader.cs): Изображение \"{safeFileName}\" было пропущено (изображение уже существует)");
+                        return;
+                    }
+
+                    Directory.CreateDirectory(brandDirPath);
 
                     Regex jackLocationRegex = new Regex(@"^https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/jackingPoints\?modelId=d_\d+");
                     Regex diagnosticConnectorRegex = new Regex(@"^https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/eobdConnectorLocations\?modelId=d_\d+");
@@ -108,7 +122,7 @@ namespace CarParser.Parser
                             }
                             else
                             {
-                                UpdateUI("В каталоге нет файлов для обработки.");
+                                UpdateUI("Log (FilesDownloader.cs): В каталоге нет файлов для обработки.");
                                 return;
                             }
 
@@ -121,7 +135,7 @@ namespace CarParser.Parser
                                 }
                                 else
                                 {
-                                    UpdateUI("В каталоге нет файлов для обработки.");
+                                    UpdateUI("Log (FilesDownloader.cs): В каталоге нет файлов для обработки.");
                                     return;
                                 }
 
@@ -131,7 +145,7 @@ namespace CarParser.Parser
                             // Переименование файла
                             string newFileName = safeFileName + ".pdf";
                             string newFilePath = Path.Combine(brandDirPath, newFileName);
-                            UpdateUI("Путь до скачаного PDF файла: " + downloadedFilePath);
+                            UpdateUI("Log (FilesDownloader.cs): Путь до скачаного PDF файла: " + downloadedFilePath);
                             File.Move(downloadedFilePath, newFilePath);
 
                             return;
@@ -144,10 +158,10 @@ namespace CarParser.Parser
             }
             catch (Exception ex)
             {
-                UpdateUI($"Произошла ошибка: {ex.Message}");
+                UpdateUI($"Log (FilesDownloader.cs): Произошла ошибка: {ex.Message}");
             }
 
-            UpdateUI("Скачивание и конвертирование изображений завершено");
+            UpdateUI("Log (FilesDownloader.cs): Скачивание и конвертирование изображений завершено");
         }
 
         private static void ConvertGZIP(HttpClient client, string imgUrl, string brandDirPath, string safeFileName)
@@ -160,7 +174,7 @@ namespace CarParser.Parser
                 // Убедимся, что запрос был успешным
                 response.EnsureSuccessStatusCode();
                 string debugMsg = response.IsSuccessStatusCode ? "Запрос был успешен" : "Запрос не был успешен";
-                UpdateUI(debugMsg);
+                UpdateUI("Log (FilesDownloader.cs): " + debugMsg);
 
                 // Читаем содержимое ответа как массив байтов
                 byte[] imageData = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
@@ -195,11 +209,6 @@ namespace CarParser.Parser
             }
             catch (InvalidDataException ex) { Console.WriteLine("Недопустимые данные: " + ex.Message); }
             catch (Exception ex) { Console.WriteLine("Неизвестная ошибка: " + ex.Message); }
-        }
-
-        private static void UpdateUI(string message)
-        {
-            Console.WriteLine($"[{DateTime.Now}] " + message);
         }
     }
 }

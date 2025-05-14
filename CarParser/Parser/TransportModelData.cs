@@ -11,10 +11,13 @@ using OpenQA.Selenium.Support.UI;
 using SharpVectors.Dom.Events;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web;
+using static CarParser.DebugLog;
 
 namespace CarParser
 {
@@ -25,8 +28,8 @@ namespace CarParser
 
         IWebDriver Driver { get; }
         WebDriverWait DriverWait { get; }
-
-        FilesParser FilesParser { get; }
+        FilesDownloader FilesParser { get; }
+        TransportTypes TransportType { get; }
 
         string Domain { get; }
         string BrandName { get; }
@@ -37,18 +40,19 @@ namespace CarParser
 
         public List<TransportModificationDescriptionData> ModificationDescriptions { get; private set; }
 
-        public TransportModelData(IWebDriver driver, WebDriverWait driverWait, FilesParser filesParser, string domain, string brandName, string name, string imageLink, string modelPageLink)
+        public TransportModelData(IWebDriver driver, WebDriverWait driverWait, FilesDownloader filesParser, string domain, TransportTypes transportType, string brandName, string name, string imageLink, string modelPageLink)
         {
             Domain = domain;
             Driver = driver;
             FilesParser = filesParser;
             DriverWait = driverWait;
+            TransportType = transportType;
             Name = name;
             BrandName = brandName;
             ImageLink = imageLink;
             ModelPageLink = modelPageLink;
 
-            UpdateUI(ModelPageLink);
+            GetFullModelDescription();
         }
 
         public void GetFullModelDescription()
@@ -56,125 +60,236 @@ namespace CarParser
             Dictionary<string, string> PDFFiles = new Dictionary<string, string>();
             Dictionary<string, string> ImageFiles = new Dictionary<string, string>();
 
-            Id = GetTransportModelId(ModelPageLink);
+            string DataUrl = "", ModificationId = "";
+            string Type = "Не указан";
+            string Bridge = "Отсутствует";
+            string EngineCode = "Отсутствует";
+            string FuelType = "Отсутствует";
+            string Volume = "Отсутствует", Power = "Отсутствует";
+            string ModelYear = "Не указан";
+            string ManufactureType = "Отсутствует";
+            string Weight = "Не указан";
 
-            Console.WriteLine(ModelPageLink);
+            string Group = "Не указан";
+            string MakeName = "Не указан";
+            string Code = "Не указан";
+            string Description = "Отсутствует";
+
+            Id = GetTransportModelId(ModelPageLink);
 
             Driver.Navigate().GoToUrl(ModelPageLink);
 
             DriverWait.Until(d => d.FindElement(By.TagName("table")));
 
-            var IdLocationButtons = Driver.FindElements(By.ClassName("id-location-btn"));
-
-            Regex repairManualRegex = new Regex(@"https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/repairManuals\?modelId=\w+&groupId=\w+&storyId=\w+(&altView=true&extraInfo=true)?");
-            Regex jackLocationRegex = new Regex(@"^\/touch\/site\/layout\/jackingPoints\?modelId=d_\d+");
-            Regex diagnosticConnectorRegex = new Regex(@"^\/touch\/site\/layout\/eobdConnectorLocations\?modelId=d_\d+");
-
-            foreach (var IdLocationButton in IdLocationButtons)
+            if (TransportType == TransportTypes.Trailer)
             {
-                string href = IdLocationButton.GetAttribute("href");
-                string dataUrl = IdLocationButton.GetAttribute("data-url");
-
-                if (!string.IsNullOrEmpty(dataUrl) && (jackLocationRegex.IsMatch(dataUrl) || diagnosticConnectorRegex.IsMatch(dataUrl)) && !ImageFiles.ContainsKey($"({BrandName})" + IdLocationButton.Text))
+                var btnShowMore = Driver.FindElements(By.Id("showMore"));
+                foreach (var btn in btnShowMore)
                 {
-                    ImageFiles.Add($"({BrandName})" + IdLocationButton.Text, Domain + dataUrl);
+                    while (Driver.FindElements(By.ClassName("hidden")).Count > 0)
+                    {
+                        btn.Click();
+                    }
                 }
-                if (!string.IsNullOrEmpty(href) && repairManualRegex.IsMatch(href) && !PDFFiles.ContainsKey($"({BrandName})" + IdLocationButton.Text))
+
+                var modificationLists = Driver.FindElements(By.ClassName("customComponentList"));
+                foreach (var modificationList in modificationLists)
                 {
-                    PDFFiles.Add($"({BrandName})" + IdLocationButton.Text, href);
+                    var modificationRows = modificationList.FindElements(By.TagName("li"));
+                    foreach (var modificationRow in modificationRows)
+                    {
+                        ModificationId = modificationRow.GetAttribute("Id");
+
+                        var cells = modificationRow.FindElements(By.TagName("span"));
+
+                        foreach (var cell in cells)
+                        {
+                            switch (cell.GetAttribute("class"))
+                            {
+                                case "group":
+                                    Group = cell.Text.Trim();
+                                    break;
+
+                                case "make":
+                                    MakeName = cell.Text.Trim();
+                                    break;
+
+                                case "componentType":
+                                    Type = cell.Text.Trim();
+                                    break;
+
+                                case "code":
+                                    Code = cell.Text.Trim();
+                                    break;
+
+                                case "description":
+                                    Description = cell.Text.Trim();
+                                    break;
+                            }
+                        }
+
+                        CreateTransportModificationDescriptionData(ModificationId, Group, Type, MakeName, EngineCode, Code, FuelType, Volume, Bridge, Power, ModelYear, ManufactureType, Description, Weight);
+                    }
                 }
             }
-
-            // Получение таблицы
-            var Table = Driver.FindElement(By.TagName("table"));
-
-            // Получение всех строк таблицы
-            var TableRows = Table.FindElements(By.TagName("tr"));
-
-            foreach (var Row in TableRows)
+            else
             {
-                if (Row.GetAttribute("class") != "heading")
+                var IdLocationButtons = Driver.FindElements(By.ClassName("id-location-btn"));
+
+                Regex repairManualRegex = new Regex(@"https:\/\/www\.workshopdata\.com\/touch\/site\/layout\/repairManuals\?modelId=\w+&groupId=\w+&storyId=\w+(&altView=true&extraInfo=true)?");
+                Regex jackLocationRegex = new Regex(@"^\/touch\/site\/layout\/jackingPoints\?modelId=d_\d+");
+                Regex diagnosticConnectorRegex = new Regex(@"^\/touch\/site\/layout\/eobdConnectorLocations\?modelId=d_\d+");
+
+                foreach (var IdLocationButton in IdLocationButtons)
                 {
-                    string DataUrl = Row.GetAttribute("data-url");
+                    string href = IdLocationButton.GetAttribute("href");
+                    string dataUrl = IdLocationButton.GetAttribute("data-url");
 
-                    string ModificationId = GetTransportModificationId(DataUrl);
-                    string Type = "";
-                    string EngineCode = "";
-                    string FuelType = "";
-                    string Volume = "", Power = "";
-                    string ModelYear = "";
-
-                    string classAttribute = Row.GetAttribute("class");
-
-                    // Разбиваю строку на отдельные классы
-                    string[] classes = classAttribute.Split(' ');
-
-                    // Получаю первый класс
-                    string fuelClassType = classes[0];
-
-                    switch (fuelClassType)
+                    if (!string.IsNullOrEmpty(dataUrl) && (jackLocationRegex.IsMatch(dataUrl) || diagnosticConnectorRegex.IsMatch(dataUrl)) && !ImageFiles.ContainsKey($"({BrandName})" + IdLocationButton.Text))
                     {
-                        case "petrol":
-                            FuelType = "Бензин";
-                            break;
-
-                        case "diesel":
-                            FuelType = "Дизель";
-                            break;
-
-                        case "cng":
-                            FuelType = "Природный газ";
-                            break;
-
-                        case "hydrogen":
-                            FuelType = "Водород";
-                            break;
-
-                        case "electric":
-                            FuelType = "Электроэнергия";
-                            break;
-
-                        case "hybrid":
-                            FuelType = "Гибрид";
-                            break;
-
-                        case "":
-                            FuelType = "Не указано";
-                            break;
+                        ImageFiles.Add($"({BrandName})" + IdLocationButton.Text, Domain + dataUrl);
                     }
-
-                    // Получение ячеек (<td>) в текущей строке
-                    var Cells = Row.FindElements(By.TagName("td"));
-
-                    for (int i = 0; i < Cells.Count; i++)
+                    if (!string.IsNullOrEmpty(href) && repairManualRegex.IsMatch(href) && !PDFFiles.ContainsKey($"({BrandName})" + IdLocationButton.Text))
                     {
-                        IWebElement cell = Cells[i];
+                        PDFFiles.Add($"({BrandName})" + IdLocationButton.Text, href);
+                    }
+                }
 
-                        switch (i)
+                // Получение таблицы
+                var Table = Driver.FindElement(By.TagName("table"));
+
+                // Получение всех строк таблицы
+                var TableRows = Table.FindElements(By.TagName("tr"));
+
+                foreach (var Row in TableRows)
+                {
+                    if (Row.GetAttribute("class") != "heading")
+                    {
+                        DataUrl = Row.GetAttribute("data-url");
+
+                        ModificationId = GetTransportModificationId(DataUrl);
+
+                        string classAttribute = Row.GetAttribute("class");
+
+                        // Разбиваю строку на отдельные классы
+                        string[] classes = classAttribute.Split(' ');
+
+                        // Получаю первый класс
+                        string fuelClassType = classes[0];
+
+                        switch (fuelClassType)
                         {
-                            case 0:
-                                Type = cell.Text.Trim();
+                            case "petrol":
+                                FuelType = "Бензин";
                                 break;
 
-                            case 1:
-                                EngineCode = cell.Text.Trim();
+                            case "diesel":
+                                FuelType = "Дизель";
                                 break;
 
-                            case 2:
-                                Volume = cell.Text.Trim();
+                            case "cng":
+                                FuelType = "Природный газ";
                                 break;
 
-                            case 3:
-                                Power = cell.Text.Trim();
+                            case "hydrogen":
+                                FuelType = "Водород";
                                 break;
 
-                            case 4:
-                                ModelYear = cell.Text.Trim();
+                            case "electric":
+                                FuelType = "Электроэнергия";
+                                break;
+
+                            case "hybrid":
+                                FuelType = "Гибрид";
+                                break;
+
+                            case "":
+                                FuelType = "Не указано";
                                 break;
                         }
-                    }
 
-                    CreateTransportModificationDescriptionData(ModificationId, Type, EngineCode, FuelType, Volume, Power, ModelYear);
+                        // Получение ячеек (<td>) в текущей строке
+                        var Cells = Row.FindElements(By.TagName("td"));
+
+                        if (TransportType != TransportTypes.Truck)
+                        {
+                            for (int i = 0; i < Cells.Count; i++)
+                            {
+                                IWebElement cell = Cells[i];
+
+                                switch (i)
+                                {
+                                    case 0:
+                                        Type = cell.Text.Trim();
+                                        break;
+
+                                    case 1:
+                                        EngineCode = cell.Text.Trim();
+                                        break;
+
+                                    case 2:
+                                        Volume = cell.Text.Trim();
+                                        break;
+
+                                    case 3:
+                                        Power = cell.Text.Trim();
+                                        break;
+
+                                    case 4:
+                                        ModelYear = cell.Text.Trim();
+                                        break;
+                                }
+                            }
+                        }
+                        else if (TransportType == TransportTypes.Truck)
+                        {
+                            for (int i = 0; i < Cells.Count; i++)
+                            {
+                                IWebElement cell = Cells[i];
+
+                                switch (i)
+                                {
+                                    case 0:
+                                        Type = cell.Text.Trim();
+                                        break;
+
+                                    case 1:
+                                        Bridge = cell.Text.Trim();
+                                        break;
+
+                                    case 2:
+                                        EngineCode = cell.Text.Trim();
+                                        break;
+
+                                    case 3:
+                                        Volume = cell.Text.Trim();
+                                        break;
+
+                                    case 4:
+                                        Power = cell.Text.Trim();
+                                        break;
+
+                                    case 5:
+                                        ModelYear = cell.Text.Trim();
+                                        break;
+
+                                    case 6:
+                                        ManufactureType = cell.Text.Trim();
+                                        if (string.IsNullOrEmpty(ManufactureType))
+                                        {
+                                            ManufactureType = "Не указано";
+                                        }
+                                        break;
+
+                                    case 7:
+                                        Weight = cell.Text.Trim();
+                                        break;
+                                }
+                            }
+                        }
+
+                        CreateTransportModificationDescriptionData(ModificationId, Group, Type, MakeName, EngineCode, Code, FuelType, Volume, Bridge, Power, ModelYear, ManufactureType, Description, Weight);
+                    }
                 }
             }
 
@@ -186,8 +301,6 @@ namespace CarParser
             {
                 FilesParser.ExportImageFile(pdf.Key, pdf.Value);
             }
-
-            //Console.WriteLine($"[------------------------------]\nОписания модели созданы: \nНазвание: {Name}\nСсылка на изображение: {ImageLink}\nId модели: {Id}\nPDF файлы (названия): {PDFFiles.Keys.ToString()}\nPDF файлы (ссылки): {PDFFiles.Values.ToString()}\nИзображения (названия): {ImageFiles.Keys}\nИзображения (ссылки): {ImageFiles.Values}\n[------------------------------]");
         }
 
         public void GetModelData(ref string modelId, ref string modelName, ref string modelPageLink)
@@ -196,12 +309,12 @@ namespace CarParser
             modelName = Name;
             modelPageLink = ModelPageLink;
 
-            Console.WriteLine($"Model Id: {Id}, Model Name: {Name}, Model Page Link: {ModelPageLink}");
+            UpdateUI($"GetModelData (TransportModelData.cs): Model Id: {Id}, Model Name: {Name}, Model Page Link: {ModelPageLink}");
         }
 
-        private void CreateTransportModificationDescriptionData(string ModificationId, string Type, string EngineCode, string FuelType, string Volume, string Power, string ModelYear)
+        private void CreateTransportModificationDescriptionData(string ModificationId, string Group, string Type, string MakeName, string EngineCode, string Code, string FuelType, string Volume, string Bridge, string Power, string ModelYear, string ManufactureType, string Description, string Weight)
         {
-            TransportModificationDescriptionData ModificationDescription = new TransportModificationDescriptionData(ModificationId, Type, EngineCode, FuelType, Volume, Power, ModelYear);
+            TransportModificationDescriptionData ModificationDescription = new TransportModificationDescriptionData(ModificationId, Group, Type, MakeName, EngineCode, Code, FuelType, Volume, Bridge, Power, ModelYear, ManufactureType, Description, Weight);
 
             if (ModificationDescriptions == null)
             {
@@ -216,7 +329,16 @@ namespace CarParser
             Uri uri = new Uri(url);
             var query = QueryHelpers.ParseQuery(uri.Query);
 
-            string modelGroupId = query["modelGroupId"].ToString();
+            string modelGroupId = "Unknown";
+
+            if (url.Contains("modelGroupId"))
+            {
+                modelGroupId = query["modelGroupId"].ToString();
+            }
+            else if (url.Contains("typeId"))
+            {
+                modelGroupId = query["typeId"].ToString();
+            }
 
             return modelGroupId;
         }
@@ -232,11 +354,6 @@ namespace CarParser
 
             // Извлекаем значение параметра typeId
             return query["typeId"];
-        }
-
-        private static void UpdateUI(string message)
-        {
-            Console.WriteLine($"[{DateTime.UtcNow}] " + message);
         }
     }
 }
