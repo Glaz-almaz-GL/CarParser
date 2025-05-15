@@ -192,8 +192,11 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DebugLog.cs" />
+    <Compile Include="Parser\MotorcycleModificationDescriptionData.cs" />
     <Compile Include="Parser\FilesDownloader.cs" />
-    <Compile Include="Parser\TransportModificationDescriptionData.cs" />
+    <Compile Include="Parser\TruckModificationDescriptionData.cs" />
+    <Compile Include="Parser\CarModificationDescriptionData.cs" />
+    <Compile Include="Parser\TrailerModificationDescriptionData.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>

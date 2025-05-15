@@ -1,9 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.13.35931.197 d17.13
+VisualStudioVersion = 17.13.35931.197
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CarParser", "CarParser\CarParser.csproj", "{DCDB2C64-5D6E-4DBB-A484-A986E6DA4C85}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EverythingParser", "EverythingParser\EverythingParser.csproj", "{C7E35880-C1B5-4620-84CA-446D5AC9487D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Selenium.WebDriver.EventCapture", "..\..\..\Desktop\Selenium.WebDriver.EventCapture-master\Selenium.WebDriver.EventCapture\Selenium.WebDriver.EventCapture.csproj", "{6E447984-060A-4B5D-8BF3-FDA16CAA2483}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +19,14 @@ Global
 		{DCDB2C64-5D6E-4DBB-A484-A986E6DA4C85}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DCDB2C64-5D6E-4DBB-A484-A986E6DA4C85}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DCDB2C64-5D6E-4DBB-A484-A986E6DA4C85}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C7E35880-C1B5-4620-84CA-446D5AC9487D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C7E35880-C1B5-4620-84CA-446D5AC9487D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C7E35880-C1B5-4620-84CA-446D5AC9487D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C7E35880-C1B5-4620-84CA-446D5AC9487D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6E447984-060A-4B5D-8BF3-FDA16CAA2483}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6E447984-060A-4B5D-8BF3-FDA16CAA2483}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6E447984-060A-4B5D-8BF3-FDA16CAA2483}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6E447984-060A-4B5D-8BF3-FDA16CAA2483}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

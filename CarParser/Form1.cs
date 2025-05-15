@@ -138,86 +138,127 @@ namespace CarParser
                                             TreeNode modelNode = new TreeNode(modelName);
                                             brandNode.Nodes.Add(modelNode);
 
-                                            if (transportModel.ModificationDescriptions != null && transportModel.ModificationDescriptions.Count > 0)
+                                            switch (transportType)
                                             {
-                                                // Словарь для хранения существующих узлов и счетчиков по их названию
-                                                Dictionary<string, (TreeNode node, int count)> existingNodes = new Dictionary<string, (TreeNode, int)>();
-
-                                                foreach (TransportModificationDescriptionData transportModification in transportModel.ModificationDescriptions)
-                                                {
-                                                    string modificationId = "", modificationType = "", modificationEngineCode = "", modificationFuelType = "", modificationVolume = "", modificationBridge = "", modificationPower = "", modificationModelYear = "", modificationManufactureType = "";
-                                                    string modificationWeight = "";
-                                                    string modificationGroup = "", modificationCode = "", modificationMakeName = "", modificationDescription = "";
-
-                                                    transportModification.GetModificationData(ref modificationId, ref modificationGroup, ref modificationType, ref modificationMakeName, ref modificationEngineCode, ref modificationCode, ref modificationFuelType, ref modificationVolume, ref modificationBridge, ref modificationPower, ref modificationModelYear, ref modificationManufactureType, ref modificationDescription, ref modificationWeight);
-
-                                                    TreeNode modificationIdNode = new TreeNode("Id: " + modificationId);
-                                                    TreeNode modificationEngineCodeNode = new TreeNode("Код двигателя: " + modificationEngineCode);
-                                                    TreeNode modificationCodeNode = new TreeNode("Код: " + modificationCode);
-                                                    TreeNode modificationGroupNode = new TreeNode("Группа: " + modificationGroup);
-                                                    TreeNode modificationMakeNameNode = new TreeNode("Изготовитель: " + modificationMakeName);
-                                                    TreeNode modificationFuelTypeNode = new TreeNode("Тип топлива: " + modificationFuelType);
-                                                    TreeNode modificationVolumeNode = new TreeNode("Объём: " + modificationVolume);
-                                                    TreeNode modificationBridgeNode = new TreeNode("Мост: " + modificationBridge);
-                                                    TreeNode modificationPowerNode = new TreeNode("Мощность: " + modificationPower);
-                                                    TreeNode modificationModelYearNode = new TreeNode("Модельный год: " + modificationModelYear);
-                                                    TreeNode modificationManufactureTypeNode = new TreeNode("Тип изготовления: " + modificationManufactureType);
-                                                    TreeNode modificationDescriptionNode = new TreeNode("Описание: " + modificationDescription);
-                                                    TreeNode modificationWeightNode = new TreeNode("Вес: " + modificationWeight);
-
-                                                    // Проверяем, существует ли уже узел с таким названием
-                                                    if (existingNodes.ContainsKey(modificationType))
+                                                case TransportTypes.Car:
+                                                    if (transportModel.CarModificationDescriptions != null && transportModel.CarModificationDescriptions.Count > 0)
                                                     {
-                                                        // Если узел существует, увеличиваем счетчик и создаем новый подузел с цифрой
-                                                        var (existingModificationNode, count) = existingNodes[modificationType];
-                                                        count++;
-                                                        TreeNode modificationNode = new TreeNode($"{modificationType} ({count})");
+                                                        foreach (var carModification in transportModel.CarModificationDescriptions)
+                                                        {
+                                                            string ModificationId = "", ModificationType = "", ModificationEngineCode = "", ModificationFuelType = "", ModificationVolume = "", ModificationPower = "", ModificationModelYear = "";
 
-                                                        modificationNode.Nodes.Add(modificationIdNode);
-                                                        modificationNode.Nodes.Add(modificationEngineCodeNode);
-                                                        modificationNode.Nodes.Add(modificationCodeNode);
-                                                        modificationNode.Nodes.Add(modificationGroupNode);
-                                                        modificationNode.Nodes.Add(modificationMakeNameNode);
-                                                        modificationNode.Nodes.Add(modificationFuelTypeNode);
-                                                        modificationNode.Nodes.Add(modificationVolumeNode);
-                                                        modificationNode.Nodes.Add(modificationBridgeNode);
-                                                        modificationNode.Nodes.Add(modificationPowerNode);
-                                                        modificationNode.Nodes.Add(modificationModelYearNode);
-                                                        modificationNode.Nodes.Add(modificationManufactureTypeNode);
-                                                        modificationNode.Nodes.Add(modificationDescriptionNode);
-                                                        modificationNode.Nodes.Add(modificationWeightNode);
+                                                            carModification.GetCarModificationData(ref ModificationId, ref ModificationType, ref ModificationEngineCode, ref ModificationFuelType, ref ModificationVolume, ref ModificationPower, ref ModificationModelYear);
 
-                                                        existingModificationNode.Nodes.Add(modificationNode);
+                                                            TreeNode IdNode = new TreeNode("Id: " + ModificationId);
+                                                            TreeNode EngineCodeNode = new TreeNode("Код двигателя: " + ModificationEngineCode);
+                                                            TreeNode FuelTypeNode = new TreeNode("Тип топлива " + ModificationFuelType);
+                                                            TreeNode VolumeNode = new TreeNode("Объём: " + ModificationVolume);
+                                                            TreeNode PowerNode = new TreeNode("Мощность: " + ModificationPower);
+                                                            TreeNode ModelYearNode = new TreeNode("Модельный год: " + ModificationModelYear);
 
-                                                        // Обновляем счетчик в словаре
-                                                        existingNodes[modificationType] = (existingModificationNode, count);
+                                                            TreeNode CarModificationNode = new TreeNode(ModificationType);
+
+                                                            CarModificationNode.Nodes.Add(IdNode);
+                                                            CarModificationNode.Nodes.Add(EngineCodeNode);
+                                                            CarModificationNode.Nodes.Add(FuelTypeNode);
+                                                            CarModificationNode.Nodes.Add(VolumeNode);
+                                                            CarModificationNode.Nodes.Add(PowerNode);
+                                                            CarModificationNode.Nodes.Add(ModelYearNode);
+
+                                                            modelNode.Nodes.Add(CarModificationNode);
+                                                        }
                                                     }
-                                                    else
+                                                    break;
+
+                                                case TransportTypes.Motorcycle:
+                                                    if (transportModel.MotorcycleModificationDescriptions != null && transportModel.MotorcycleModificationDescriptions.Count > 0)
                                                     {
-                                                        // Если узла нет, создаем новый узел с цифрой и добавляем его в дерево
-                                                        int count = 0;
-                                                        TreeNode modificationNode = new TreeNode($"{modificationType}");
+                                                        foreach (var motorcycleModification in transportModel.MotorcycleModificationDescriptions)
+                                                        {
+                                                            string ModificationId = "", ModificationType = "", ModificationEngineCode = "", ModificationFuelType = "", ModificationVolume = "", ModificationPower = "", ModificationModelYear = "";
 
-                                                        modificationNode.Nodes.Add(modificationIdNode);
-                                                        modificationNode.Nodes.Add(modificationEngineCodeNode);
-                                                        modificationNode.Nodes.Add(modificationCodeNode);
-                                                        modificationNode.Nodes.Add(modificationGroupNode);
-                                                        modificationNode.Nodes.Add(modificationMakeNameNode);
-                                                        modificationNode.Nodes.Add(modificationFuelTypeNode);
-                                                        modificationNode.Nodes.Add(modificationVolumeNode);
-                                                        modificationNode.Nodes.Add(modificationBridgeNode);
-                                                        modificationNode.Nodes.Add(modificationPowerNode);
-                                                        modificationNode.Nodes.Add(modificationModelYearNode);
-                                                        modificationNode.Nodes.Add(modificationManufactureTypeNode);
-                                                        modificationNode.Nodes.Add(modificationDescriptionNode);
-                                                        modificationNode.Nodes.Add(modificationWeightNode);
+                                                            motorcycleModification.GetMotorcycleModificationData(ref ModificationId, ref ModificationType, ref ModificationEngineCode, ref ModificationFuelType, ref ModificationVolume, ref ModificationPower, ref ModificationModelYear);
 
-                                                        modelNode.Nodes.Add(modificationNode);
+                                                            TreeNode IdNode = new TreeNode("Id: " + ModificationId);
+                                                            TreeNode EngineCodeNode = new TreeNode("Код двигателя: " + ModificationEngineCode);
+                                                            TreeNode FuelTypeNode = new TreeNode("Тип топлива " + ModificationFuelType);
+                                                            TreeNode VolumeNode = new TreeNode("Объём: " + ModificationVolume);
+                                                            TreeNode PowerNode = new TreeNode("Мощность: " + ModificationPower);
+                                                            TreeNode ModelYearNode = new TreeNode("Модельный год: " + ModificationModelYear);
 
-                                                        // Сохраняем узел и счетчик в словарь
-                                                        existingNodes[modificationType] = (modificationNode, count);
+                                                            TreeNode MotorcycleModificationNode = new TreeNode(ModificationType);
+
+                                                            MotorcycleModificationNode.Nodes.Add(IdNode);
+                                                            MotorcycleModificationNode.Nodes.Add(EngineCodeNode);
+                                                            MotorcycleModificationNode.Nodes.Add(FuelTypeNode);
+                                                            MotorcycleModificationNode.Nodes.Add(VolumeNode);
+                                                            MotorcycleModificationNode.Nodes.Add(PowerNode);
+                                                            MotorcycleModificationNode.Nodes.Add(ModelYearNode);
+
+                                                            modelNode.Nodes.Add(MotorcycleModificationNode);
+                                                        }
                                                     }
-                                                }
+                                                    break;
+
+                                                case TransportTypes.Truck:
+                                                    if (transportModel.TruckModificationDescriptions != null && transportModel.TruckModificationDescriptions.Count > 0)
+                                                    {
+                                                        foreach (var truckModification in transportModel.TruckModificationDescriptions)
+                                                        {
+                                                            string ModificationId = "", ModificationType = "", ModificationEngineCode = "", ModificationVolume = "", ModificationBridge = "", ModificationPower = "", ModificationModelYear = "", ModificationManufactureType = "", ModificationWeight = "";
+
+                                                            truckModification.GetTruckModificationData(ref ModificationId, ref ModificationType, ref ModificationEngineCode, ref ModificationVolume, ref ModificationBridge, ref ModificationPower, ref ModificationModelYear, ref ModificationManufactureType, ref ModificationWeight);
+
+                                                            TreeNode IdNode = new TreeNode("Id: " + ModificationId);
+                                                            TreeNode EngineCodeNode = new TreeNode("Код двигателя: " + ModificationEngineCode);
+                                                            TreeNode VolumeNode = new TreeNode("Объём: " + ModificationVolume);
+                                                            TreeNode BridgeNode = new TreeNode("Мост: " + ModificationBridge);
+                                                            TreeNode PowerNode = new TreeNode("Объём: " + ModificationVolume);
+                                                            TreeNode ModelYearNode = new TreeNode("Модельный год: " + ModificationModelYear);
+                                                            TreeNode ManufactureTypeNode = new TreeNode("Вес (Тонны): " + ModificationWeight);
+
+                                                            TreeNode TruckModificationNode = new TreeNode(ModificationType);
+
+                                                            TruckModificationNode.Nodes.Add(IdNode);
+                                                            TruckModificationNode.Nodes.Add(EngineCodeNode);
+                                                            TruckModificationNode.Nodes.Add(VolumeNode);
+                                                            TruckModificationNode.Nodes.Add(BridgeNode);
+                                                            TruckModificationNode.Nodes.Add(PowerNode);
+                                                            TruckModificationNode.Nodes.Add(ModelYearNode);
+                                                            TruckModificationNode.Nodes.Add(ManufactureTypeNode);
+
+                                                            modelNode.Nodes.Add(TruckModificationNode);
+                                                        }
+                                                    }
+                                                    break;
+
+                                                case TransportTypes.Trailer:
+                                                    if (transportModel.TrailerModificationDescriptions != null && transportModel.TrailerModificationDescriptions.Count > 0)
+                                                    {
+                                                        foreach (var trailerModification in transportModel.TrailerModificationDescriptions)
+                                                        {
+                                                            string ModificationId = "", ModificationGroup = "", ModificationType = "", ModificationMakeName = "", ModificationCode = "", ModificationDescription = "";
+
+                                                            trailerModification.GetTrailerModificationData(ref ModificationId, ref ModificationGroup, ref ModificationType, ref ModificationMakeName, ref ModificationCode, ref ModificationDescription);
+
+                                                            TreeNode IdNode = new TreeNode("Id: " + ModificationId);
+                                                            TreeNode GroupNode = new TreeNode("Группа: " + ModificationGroup);
+                                                            TreeNode MakeNameNode = new TreeNode("Изготовитель: " + ModificationCode);
+                                                            TreeNode CodeNode = new TreeNode("Код: " + ModificationCode);
+                                                            TreeNode DescriptionNode = new TreeNode("Описание: " + ModificationDescription);
+
+                                                            TreeNode TruckModificationNode = new TreeNode(ModificationType);
+
+                                                            TruckModificationNode.Nodes.Add(IdNode);
+                                                            TruckModificationNode.Nodes.Add(GroupNode);
+                                                            TruckModificationNode.Nodes.Add(MakeNameNode);
+                                                            TruckModificationNode.Nodes.Add(CodeNode);
+                                                            TruckModificationNode.Nodes.Add(DescriptionNode);
+
+                                                            modelNode.Nodes.Add(TruckModificationNode);
+                                                        }
+                                                    }
+                                                    break;
                                             }
                                         }
                                     }

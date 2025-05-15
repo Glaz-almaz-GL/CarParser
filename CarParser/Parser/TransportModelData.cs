@@ -38,7 +38,10 @@ namespace CarParser
         string ImageLink { get; }
         string ModelPageLink { get; }
 
-        public List<TransportModificationDescriptionData> ModificationDescriptions { get; private set; }
+        public List<CarModificationDescriptionData> CarModificationDescriptions { get; private set; }
+        public List<MotorcycleModificationDescriptionData> MotorcycleModificationDescriptions { get; private set; }
+        public List<TruckModificationDescriptionData> TruckModificationDescriptions { get; private set; }
+        public List<TrailerModificationDescriptionData> TrailerModificationDescriptions { get; private set; }
 
         public TransportModelData(IWebDriver driver, WebDriverWait driverWait, FilesDownloader filesParser, string domain, TransportTypes transportType, string brandName, string name, string imageLink, string modelPageLink)
         {
@@ -314,14 +317,48 @@ namespace CarParser
 
         private void CreateTransportModificationDescriptionData(string ModificationId, string Group, string Type, string MakeName, string EngineCode, string Code, string FuelType, string Volume, string Bridge, string Power, string ModelYear, string ManufactureType, string Description, string Weight)
         {
-            TransportModificationDescriptionData ModificationDescription = new TransportModificationDescriptionData(ModificationId, Group, Type, MakeName, EngineCode, Code, FuelType, Volume, Bridge, Power, ModelYear, ManufactureType, Description, Weight);
-
-            if (ModificationDescriptions == null)
+            switch (TransportType)
             {
-                ModificationDescriptions = new List<TransportModificationDescriptionData>();
-            }
+                case TransportTypes.Car:
+                    if (CarModificationDescriptions == null)
+                    {
+                        CarModificationDescriptions = new List<CarModificationDescriptionData>();
+                    }
 
-            ModificationDescriptions.Add(ModificationDescription);
+                    CarModificationDescriptionData CarModificationDescription = new CarModificationDescriptionData(ModificationId, Type, EngineCode, FuelType, Volume, Power, ModelYear);
+                    CarModificationDescriptions.Add(CarModificationDescription);
+                    break;
+
+                case TransportTypes.Motorcycle:
+                    if (MotorcycleModificationDescriptions == null)
+                    {
+                        MotorcycleModificationDescriptions = new List<MotorcycleModificationDescriptionData>();
+                    }
+
+                    MotorcycleModificationDescriptionData MotorcycleModificationDescription = new MotorcycleModificationDescriptionData(ModificationId, Type, EngineCode, FuelType, Volume, Power, ModelYear);
+                    MotorcycleModificationDescriptions.Add(MotorcycleModificationDescription);
+                    break;
+
+                case TransportTypes.Truck:
+                    if (TruckModificationDescriptions == null)
+                    {
+                        TruckModificationDescriptions = new List<TruckModificationDescriptionData>();
+                    }
+
+                    TruckModificationDescriptionData TruckModificationDescription = new TruckModificationDescriptionData(ModificationId, Group, Type, EngineCode, Volume, Bridge, Power, ModelYear, ManufactureType, Weight);
+                    TruckModificationDescriptions.Add(TruckModificationDescription);
+                    break;
+
+                case TransportTypes.Trailer:
+                    if (TrailerModificationDescriptions == null)
+                    {
+                        TrailerModificationDescriptions = new List<TrailerModificationDescriptionData>();
+                    }
+
+                    TrailerModificationDescriptionData TrailerModificationDescription = new TrailerModificationDescriptionData(ModificationId, Group, Type, MakeName, Code, Description);
+                    TrailerModificationDescriptions.Add(TrailerModificationDescription);
+                    break;
+            }
         }
 
         private static string GetTransportModelId(string url)
