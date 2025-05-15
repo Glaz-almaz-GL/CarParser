@@ -26,12 +26,19 @@ namespace EverythingParser
 
         EventCapturingWebDriver CaptureDriver;
 
-        string SiteUrl = "https://www.workshopdata.com/  ";
+        ParsingConfiguration parsingConfiguration;
+        frmConfiguration frmConfiguration;
+
+        string SiteUrl = "https://www.workshopdata.com/";
 
         public Form1()
         {
             InitializeComponent();
             CreateDriver();
+
+            parsingConfiguration = new ParsingConfiguration(0);
+            frmConfiguration = new frmConfiguration(parsingConfiguration);
+            frmConfiguration.Show();
 
             CaptureDriver = new EventCapturingWebDriver(Driver);
 
@@ -62,26 +69,6 @@ namespace EverythingParser
             js.ExecuteScript(script, shouldCancelNavigation);
 
             CaptureDriver.ElementClickCaptured += Driver_ElementClickCaptured;
-
-            //DriverWait.Until(d => d.FindElements(By.XPath("/html/body/section[1]/section[2]/section/nav/ul/li[9]")).Count > 0);
-
-            //MessageBox.Show(Driver.FindElements(By.ClassName("tile")).Count.ToString());
-
-            //var btns = driver.FindElements(By.ClassName("tile"));
-            //List<IWebElement> childElements = new List<IWebElement>();
-
-            //foreach (var btn in btns)
-            //{
-            //    Console.WriteLine("Name: " + btn.TagName + " " + GetFullXPath(btn));
-
-            //    //childElements = btn.FindElements(By.XPath(".//*")).ToList();
-            //    PopulateTreeView(btn);
-            //}
-
-
-            //Driver.Quit();
-
-            //CreateDriver();   
         }
 
         private void Driver_ElementClickCaptured(object sender, WebElementCapturedMouseEventArgs e)
@@ -116,15 +103,21 @@ namespace EverythingParser
         }
 
         // Метод для получения всех атрибутов элемента, исключая 'style'
-        private void PopulateTreeView(IWebElement parentElement)
+        private void PopulateTreeView(IWebElement clickedElement)
         {
             try
             {
+                // Получение родительского элемента с помощью XPath
+                for (int i = 0; i < GetIterationsCount(); i++)
+                {
+                    clickedElement = clickedElement.FindElement(By.XPath(".."));
+                }
+
                 // Получить все дочерние элементы внутри родительского элемента
-                List<IWebElement> childElements = parentElement.FindElements(By.XPath("./*")).ToList();
+                List<IWebElement> childElements = clickedElement.FindElements(By.XPath("./*")).ToList();
 
                 // Создаем корневой узел для родительского элемента
-                TreeNode parentNode = new TreeNode($"Parent: {parentElement.TagName} [id={parentElement.GetAttribute("id")} , class={parentElement.GetAttribute("class")} , Text={GetDirectText(parentElement).Trim()}]");
+                TreeNode parentNode = new TreeNode($"Parent: {clickedElement.TagName} [id={clickedElement.GetAttribute("id")} , class={clickedElement.GetAttribute("class")} , Text={GetDirectText(clickedElement).Trim()}]");
 
                 // Обновляем TreeView в UI потоке
                 if (treeView1.InvokeRequired)
@@ -143,6 +136,11 @@ namespace EverythingParser
             {
                 MessageBox.Show($"Error populating TreeView: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private int GetIterationsCount()
+        {
+            return parsingConfiguration.IterationsCountToFindParentElement;
         }
 
         private void AddParentNodeToTreeView(TreeNode parentNode)
