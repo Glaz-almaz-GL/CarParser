@@ -1,285 +1,213 @@
-﻿using OpenQA.Selenium;
+﻿using CarParser.Parser;
+using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using OpenQA.Selenium.Support.UI;
 using Selenium.WebDriver.EventCapture;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Reflection.Emit;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace EverythingParser
 {
     public partial class Form1 : Form
     {
-        bool shouldCancelNavigation = true;
-        string CacheFolderPath;
-        IWebDriver Driver;
-        WebDriverWait DriverWait;
+        public HashSet<string> attributesList = new HashSet<string>();
 
-        EventCapturingWebDriver CaptureDriver;
+        private WebDriverManager WebDriverManager;
+        private FilesDownloader FilesDownloader;
+        private EventCapturingWebDriver CaptureDriver;
+        private WebDriverWait DriverWait;
+        private string DownloadFilesFolder;
+        private string SiteUrl = "https://www.workshopdata.com/";
 
-        ParsingConfiguration parsingConfiguration;
-        frmConfiguration frmConfiguration;
-
-        string SiteUrl = "https://www.workshopdata.com/";
+        private List<AttributeActions> DownloadAttributeActions = new List<AttributeActions>();
+        private List<AttributeActions> OpenUrlAttributeActions = new List<AttributeActions>();
+        private List<AttributeActions> ExportIdAttributeActions = new List<AttributeActions>();
+        private List<AttributeActions> ExportAttributeActions = new List<AttributeActions>();
 
         public Form1()
         {
             InitializeComponent();
-            CreateDriver();
+            Initialize();
+        }
 
-            parsingConfiguration = new ParsingConfiguration(0);
-            frmConfiguration = new frmConfiguration(parsingConfiguration);
-            frmConfiguration.Show();
-
-            CaptureDriver = new EventCapturingWebDriver(Driver);
+        private void Initialize()
+        {
+            WebDriverManager = new WebDriverManager(this);
+            FilesDownloader = new FilesDownloader("EverethingParser", WebDriverManager.DownloadFilesFolderPath, "Files");
+            CaptureDriver = WebDriverManager.CaptureDriver;
+            DriverWait = WebDriverManager.DriverWait;
+            DownloadFilesFolder = WebDriverManager.DownloadFilesFolderPath;
 
             CaptureDriver.Navigate().GoToUrl(SiteUrl);
+            HandleDemoButton();
 
+            WebDriverManager.SetInitialLocalStorageValue();
+            WebDriverManager.InjectJavaScriptForNavigationHandling();
+
+            InitializeEventHandling();
+        }
+
+        private void HandleDemoButton()
+        {
             if (CaptureDriver.FindElements(By.XPath("//input[@value='Демо']")).Count > 0)
             {
                 IWebElement demoButton = CaptureDriver.FindElement(By.XPath("//input[@value='Демо']"));
                 demoButton.Click();
             }
+        }
 
-            // Добавление обработчика событий на все ссылки
-            IJavaScriptExecutor js = (IJavaScriptExecutor)Driver;
-            string script = @"
-            var shouldCancelNavigation = arguments[0];
-            var links = document.getElementsByTagName('a');
-            for (var i = 0; i < links.length; i++) {
-                links[i].addEventListener('click', function(event) {
-                    if (shouldCancelNavigation) {
-                        event.preventDefault();
-                        console.log('Переход по ссылке отменен.');
-                    } else {
-                        console.log('Переход по ссылке разрешен.');
-                    }
-                });
-            }
-        ";
-            js.ExecuteScript(script, shouldCancelNavigation);
-
+        private void InitializeEventHandling()
+        {
             CaptureDriver.ElementClickCaptured += Driver_ElementClickCaptured;
         }
 
         private void Driver_ElementClickCaptured(object sender, WebElementCapturedMouseEventArgs e)
         {
-            Console.WriteLine("Click at ({0}, {1}): <{2} id=\"{3}\">", e.ClientX, e.ClientY, e.Element.TagName, e.Element.GetAttribute("id"));
-
-            PopulateTreeView(e.Element);
+            AddAttributesToFlowLayoutPanel(txtAttributes.Text);
+            UpdateXPathTextBox(e.Element);
         }
 
-        public string GetFullXPath(IWebElement element)
+        private void AddAttributesToFlowLayoutPanel(string attributesToParsing)
         {
-            if (element == null)
-                return string.Empty;
-
-            string tagName = element.TagName;
-            string path = tagName;
-
-            if (tagName.Equals("html"))
-                return path;
-
-            // Получаем все соседние элементы того же типа
-            IWebElement parent = element.FindElement(By.XPath(".."));
-            List<IWebElement> siblings = parent.FindElements(By.XPath(tagName)).ToList();
-
-            if (siblings.Count > 1)
+            if (!string.IsNullOrEmpty(attributesToParsing))
             {
-                int index = siblings.IndexOf(element) + 1;
-                path += $"[{index}]";
-            }
-
-            return $"{GetFullXPath(parent)}/{path}";
-        }
-
-        // Метод для получения всех атрибутов элемента, исключая 'style'
-        private void PopulateTreeView(IWebElement clickedElement)
-        {
-            try
-            {
-                // Получение родительского элемента с помощью XPath
-                for (int i = 0; i < GetIterationsCount(); i++)
+                var attributesArray = attributesToParsing.Split(',');
+                foreach (var attribute in attributesArray)
                 {
-                    clickedElement = clickedElement.FindElement(By.XPath(".."));
-                }
-
-                // Получить все дочерние элементы внутри родительского элемента
-                List<IWebElement> childElements = clickedElement.FindElements(By.XPath("./*")).ToList();
-
-                // Создаем корневой узел для родительского элемента
-                TreeNode parentNode = new TreeNode($"Parent: {clickedElement.TagName} [id={clickedElement.GetAttribute("id")} , class={clickedElement.GetAttribute("class")} , Text={GetDirectText(clickedElement).Trim()}]");
-
-                // Обновляем TreeView в UI потоке
-                if (treeView1.InvokeRequired)
-                {
-                    treeView1.Invoke(new Action<TreeNode>(AddParentNodeToTreeView), parentNode);
-                }
-                else
-                {
-                    AddParentNodeToTreeView(parentNode);
-                }
-
-                // Рекурсивно добавляем дочерние элементы
-                AddChildNodes(parentNode, childElements);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error populating TreeView: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private int GetIterationsCount()
-        {
-            return parsingConfiguration.IterationsCountToFindParentElement;
-        }
-
-        private void AddParentNodeToTreeView(TreeNode parentNode)
-        {
-            treeView1.Nodes.Add(parentNode);
-        }
-
-        private void AddChildNodes(TreeNode parentNode, List<IWebElement> childElements)
-        {
-            foreach (IWebElement child in childElements)
-            {
-                try
-                {
-                    string tagName = child.TagName;
-                    var attributes = GetAttributes(child);
-
-                    // Формируем строку атрибутов
-                    string attributesString = string.Join(" , ", attributes.Select(kv => $"{kv.Key}={kv.Value}"));
-
-                    // Получаем текст элемента, игнорируя текст дочерних элементов
-                    string elementText = GetDirectText(child).Trim();
-                    string displayText = !string.IsNullOrEmpty(elementText) ? $" - {elementText}" : "";
-
-                    // Создаем узел для текущего элемента
-                    TreeNode childNode = new TreeNode($"{tagName} [{attributesString}]{displayText}");
-
-                    if (treeView1.InvokeRequired)
-                    {
-                        treeView1.Invoke(new Action<TreeNode, TreeNode>((p, c) => p.Nodes.Add(c)), parentNode, childNode);
-                    }
-                    else
-                    {
-                        parentNode.Nodes.Add(childNode);
-                    }
-
-                    // Рекурсивно добавляем дочерние элементы текущего элемента
-                    List<IWebElement> grandChildElements = child.FindElements(By.XPath("./*")).ToList();
-                    if (grandChildElements.Count > 0)
-                    {
-                        AddChildNodes(childNode, grandChildElements);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error adding child node: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    AddControlToFlowLayoutPanel(attribute);
                 }
             }
         }
 
-        // Метод для получения текста непосредственно внутри элемента, игнорируя текст дочерних элементов
-        private string GetDirectText(IWebElement element)
+        private void AddControlToFlowLayoutPanel(string attribute)
         {
-            var directText = ((IJavaScriptExecutor)Driver).ExecuteScript(
-                @"var text = '';
-          for (var i = 0; i < arguments[0].childNodes.length; i++) {
-              if (arguments[0].childNodes[i].nodeType === Node.TEXT_NODE) {
-                  text += arguments[0].childNodes[i].nodeValue.trim();
-              }
-          }
-          return text;",
-                element);
-            return directText.ToString().Trim();
+            if (flowLayoutPanel1.InvokeRequired)
+            {
+                flowLayoutPanel1.Invoke(new MethodInvoker(() => flowLayoutPanel1.Controls.Add(new ucAction(attribute))));
+            }
+            else
+            {
+                flowLayoutPanel1.Controls.Add(new ucAction(attribute));
+            }
         }
 
-        // Метод для получения всех атрибутов элемента
-        private Dictionary<string, string> GetAttributes(IWebElement element)
+        private void UpdateXPathTextBox(IWebElement element)
         {
-            Dictionary<string, string> attributes = new Dictionary<string, string>();
-
-            // Получаем строку всех атрибутов элемента
-            string outerHtml = element.GetAttribute("outerHTML");
-            string innerHtml = element.GetAttribute("innerHTML");
-
-            // Удаляем внутреннее HTML, чтобы остались только атрибуты
-            string tagWithAttributes = outerHtml;
-
-            // Если innerHtml не пустая, заменяем его на пустую строку
-            if (!string.IsNullOrEmpty(innerHtml))
+            if (txtXPath.InvokeRequired)
             {
-                tagWithAttributes = outerHtml.Replace(innerHtml, "").Trim();
+                txtXPath.Invoke(new MethodInvoker(() => txtXPath.Text = WebDriverManager.GetFullXPath(element)));
             }
-
-            // Находим начало и конец тега
-            int startTagIndex = tagWithAttributes.IndexOf('<') + 1;
-            int endTagIndex = tagWithAttributes.IndexOf('>');
-
-            if (startTagIndex >= 0 && endTagIndex > startTagIndex)
+            else
             {
-                // Извлекаем часть строки с атрибутами
-                string attributesString = tagWithAttributes.Substring(startTagIndex, endTagIndex - startTagIndex).Trim();
-
-                // Разделяем атрибуты по пробелам
-                string[] attributePairs = attributesString.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-                foreach (string pair in attributePairs)
-                {
-                    // Разделяем имя атрибута и его значение
-                    int equalIndex = pair.IndexOf('=');
-                    if (equalIndex > 0)
-                    {
-                        string attributeName = pair.Substring(0, equalIndex).Trim();
-                        string attributeValue = pair.Substring(equalIndex + 1).Trim('\'', '"').Trim();
-
-                        // Добавляем атрибут в словарь, если это не атрибут style
-                        if (attributeName != "style")
-                        {
-                            attributes[attributeName] = attributeValue;
-                        }
-                    }
-                }
+                txtXPath.Text = WebDriverManager.GetFullXPath(element);
             }
-
-            return attributes;
-        }
-
-        private void CreateDriver()
-        {
-            CacheFolderPath = Path.Combine(Path.GetTempPath(), $"{Name} Parser", "Download");
-
-            ChromeOptions options = new ChromeOptions();
-            //options.AddArgument("--headless"); // Запуск в безголовом режиме
-            //options.AddArgument("--disable-gpu"); // Отключает GPU для улучшения производительности в headless режиме
-            options.AddUserProfilePreference("download.default_directory", CacheFolderPath);
-            options.AddUserProfilePreference("download.prompt_for_download", false);
-            options.AddUserProfilePreference("download.directory_upgrade", true);
-            options.AddUserProfilePreference("safebrowsing.enabled", true);
-
-            ChromeDriverService service = ChromeDriverService.CreateDefaultService();
-            service.HideCommandPromptWindow = true;
-
-            // Инициализация драйвера с указанием удаленного URL
-            Driver = new ChromeDriver(service, options);
-            DriverWait = new WebDriverWait(Driver, TimeSpan.FromSeconds(30));
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-            CaptureDriver.Quit();
-            Driver.Quit();
+            WebDriverManager.QuitDrivers();
+        }
+
+        private void btStart_Click(object sender, EventArgs e)
+        {
+            string XPath = txtXPath.Text;
+            string[] parts = XPath.Split('/');
+            int lastNumberIndex = WebDriverManager.FindLastNumberIndex(parts);
+            if (lastNumberIndex > 0)
+            {
+                ProcessElements(parts, lastNumberIndex, XPath);
+            }
+            else
+            {
+                Console.WriteLine("Элемент с числом не найден.");
+            }
+        }
+
+        private void ProcessElements(string[] parts, int lastNumberIndex, string elementXPath)
+        {
+            string clickedElementNameTag = parts[lastNumberIndex].Split('[')[0];
+            string clickedParentElementXpath = string.Join("/", parts.Take(lastNumberIndex));
+            var clickedParentElement = CaptureDriver.FindElement(By.XPath(clickedParentElementXpath));
+            var clickedElements = clickedParentElement.FindElements(By.TagName(clickedElementNameTag)).Distinct();
+
+            HashSet<string> elementsForParsing = new HashSet<string>();
+
+            foreach (var clickedElement in clickedElements)
+            {
+                string attributes = "";
+                string elementText = WebDriverManager.GetElementText(clickedElement);
+
+                foreach (var attributeList in WebDriverManager.GetAllAttributes(clickedElement).Where(attributeList => !elementsForParsing.Contains(attributeList.Key)))
+                {
+                    elementsForParsing.Add(attributeList.Key);
+                }
+
+                Console.WriteLine($"{clickedElement.TagName} Attributes: {attributes}");
+                Console.WriteLine($"Element Text: {elementText}");
+            }
+
+            PerformActions(elementXPath);
+
+            foreach (var downloadAttribute in DownloadAttributeActions)
+            {
+                downloadAttribute.StartAction();
+            }
+            foreach (var exportIdAttribute in ExportIdAttributeActions)
+            {
+                exportIdAttribute.StartAction();
+            }
+            foreach (var exportAttribute in ExportAttributeActions)
+            {
+                exportAttribute.StartAction();
+            }
+            foreach (var openUrlAttribute in OpenUrlAttributeActions)
+            {
+                openUrlAttribute.StartAction();
+            }
+        }
+
+        private void PerformActions(string elementXPath)
+        {
+            try
+            {
+                foreach (ucAction actionControl in flowLayoutPanel1.Controls)
+                {
+                    string attributeName = actionControl.lbAttribute.Text;
+                    string selectedAction = actionControl.cbActions.SelectedItem.ToString();
+
+                    switch (selectedAction)
+                    {
+                        case "Скачать файл по ссылке из атрибута":
+                            AttributeActions downloadAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.DownloadFile);
+                            DownloadAttributeActions.Add(downloadAttributeAction);
+                            break;
+
+                        case "Запомнить и потом перейти по ссылке из атрибута":
+                            AttributeActions openUrlAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.None);
+                            OpenUrlAttributeActions.Add(openUrlAttributeAction);
+                            break;
+
+                        case "Экспортировать Id из ссылки":
+                            AttributeActions exportIdAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.DownloadIdFromURL);
+                            ExportIdAttributeActions.Add(exportIdAttributeAction);
+                            break;
+
+                        case "Экспортировать текст атрибута":
+                            AttributeActions exportAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.DownloadAttributes);
+                            ExportAttributeActions.Add(exportAttributeAction);
+                            break;
+                    }
+                }
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        }
+
+        private void chbGoToUrl_CheckedChanged(object sender, EventArgs e)
+        {
+            WebDriverManager.EditBlockNavigation(!chbGoToUrl.Checked);
         }
     }
 }
