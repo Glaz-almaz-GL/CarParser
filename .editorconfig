@@ -1,0 +1,4 @@
+﻿[*.cs]
+
+# S2190: Loops and recursions should not be infinite
+dotnet_diagnostic.S2190.severity = none

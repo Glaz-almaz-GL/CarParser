@@ -1,62 +1,95 @@
 ﻿using CarParser.Parser;
+using DocumentFormat.OpenXml.Bibliography;
+using DocumentFormat.OpenXml.Presentation;
+using EverythingParser.ParserActions;
+using EverythingParser.ParserConfigurationScripts;
+using EverythingParser.ParserManagers;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.DevTools;
+using OpenQA.Selenium.DevTools.V134.Accessibility;
+using OpenQA.Selenium.DevTools.V134.Network;
+using OpenQA.Selenium.Support.Events;
 using OpenQA.Selenium.Support.UI;
 using Selenium.WebDriver.EventCapture;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics.Tracing;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Linq;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Header;
+using Control = System.Windows.Forms.Control;
 
 namespace EverythingParser
 {
     public partial class Form1 : Form
     {
-        public HashSet<string> attributesList = new HashSet<string>();
+        private AttributesManager AttributesManager;
+        private ParsingConfigurationManager ParsingConfigurationManager;
+        private ControlsManager ControlsManager;
 
         private WebDriverManager WebDriverManager;
         private FilesDownloader FilesDownloader;
         private EventCapturingWebDriver CaptureDriver;
         private WebDriverWait DriverWait;
-        private string DownloadFilesFolder;
-        private string SiteUrl = "https://www.workshopdata.com/";
 
-        private List<AttributeActions> DownloadAttributeActions = new List<AttributeActions>();
-        private List<AttributeActions> OpenUrlAttributeActions = new List<AttributeActions>();
-        private List<AttributeActions> ExportIdAttributeActions = new List<AttributeActions>();
-        private List<AttributeActions> ExportAttributeActions = new List<AttributeActions>();
+        private string SiteUrl = "https://www.workshopdata.com/";
+        private string CurrentXPath = "";
+        private string LastUrl { get; set; }
+
+        private IWebDriver Driver;
+        public static List<ParsingPageConfiguration> StaticParsingPageConfigurations { get; set; }
+        private List<ParsingPageConfiguration> ParsingPageConfigurations = new List<ParsingPageConfiguration>();
+
+        private string overlayId = "anti-clickable-layer"; // Уникальный идентификатор для слоя
 
         public Form1()
         {
             InitializeComponent();
             Initialize();
+
+            LastUrl = Driver.Url;
+
+            AppDomain.CurrentDomain.ProcessExit += QuitDrivers;
         }
 
         private void Initialize()
         {
-            WebDriverManager = new WebDriverManager(this);
+            WebDriverManager = new WebDriverManager();
             FilesDownloader = new FilesDownloader("EverethingParser", WebDriverManager.DownloadFilesFolderPath, "Files");
+
+            Driver = WebDriverManager.Driver;
             CaptureDriver = WebDriverManager.CaptureDriver;
             DriverWait = WebDriverManager.DriverWait;
-            DownloadFilesFolder = WebDriverManager.DownloadFilesFolderPath;
+
+            ControlsManager = new ControlsManager(WebDriverManager, chbListBox, flowLayoutPanel1, CaptureDriver);
+            AttributesManager = new AttributesManager(CaptureDriver, chbListBox, flowLayoutPanel1, DriverWait);
+
+            chbListBox.ItemCheck += ControlsManager.HandleItemCheck;
+
+            ParsingConfigurationManager = new ParsingConfigurationManager(CaptureDriver, WebDriverManager, DriverWait, FilesDownloader, ControlsManager, AttributesManager, chbListBox, flowLayoutPanel1);
 
             CaptureDriver.Navigate().GoToUrl(SiteUrl);
-            HandleDemoButton();
+            WebDriverManager.ClickDemoButton();
+
+            if (lbPageLink.InvokeRequired)
+            {
+                lbPageLink.Invoke(new MethodInvoker(() => lbPageLink.Text = $"{CaptureDriver.Title}"));
+            }
+            else
+            {
+                lbPageLink.Text = $"{CaptureDriver.Title}";
+            }
 
             WebDriverManager.SetInitialLocalStorageValue();
-            WebDriverManager.InjectJavaScriptForNavigationHandling();
+            WebDriverActions.InjectJavaScriptForNavigationHandling(CaptureDriver);
 
             InitializeEventHandling();
-        }
-
-        private void HandleDemoButton()
-        {
-            if (CaptureDriver.FindElements(By.XPath("//input[@value='Демо']")).Count > 0)
-            {
-                IWebElement demoButton = CaptureDriver.FindElement(By.XPath("//input[@value='Демо']"));
-                demoButton.Click();
-            }
         }
 
         private void InitializeEventHandling()
@@ -64,150 +97,184 @@ namespace EverythingParser
             CaptureDriver.ElementClickCaptured += Driver_ElementClickCaptured;
         }
 
+
+
         private void Driver_ElementClickCaptured(object sender, WebElementCapturedMouseEventArgs e)
         {
-            AddAttributesToFlowLayoutPanel(txtAttributes.Text);
-            UpdateXPathTextBox(e.Element);
-        }
-
-        private void AddAttributesToFlowLayoutPanel(string attributesToParsing)
-        {
-            if (!string.IsNullOrEmpty(attributesToParsing))
+            try
             {
-                var attributesArray = attributesToParsing.Split(',');
-                foreach (var attribute in attributesArray)
+                //// Добавляем прозрачный слой поверх всей страницы
+                //string addOverlayScript = $@"
+                //var overlay = document.createElement('div');
+                //overlay.id = '{overlayId}';
+                //overlay.style.position = 'fixed';
+                //overlay.style.top = '0';
+                //overlay.style.left = '0';
+                //overlay.style.width = '100%';
+                //overlay.style.height = '100%';
+                //overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                //overlay.style.zIndex = '9999';
+                //document.body.appendChild(overlay);
+                //";
+                //((IJavaScriptExecutor)CaptureDriver).ExecuteScript(addOverlayScript);
+
+                SaveElementActions();
+
+                UpdateControlText(lbPageLink, CaptureDriver.Title);
+                UpdateControlEnabled(chbListBox, false);
+                UpdateControlVisible(lbLoading, true);
+
+                CurrentXPath = WebDriverActions.GetFullXPath(e.Element);
+
+                // Relocate the element to avoid StaleElementReferenceException
+                IWebElement element = Driver.FindElement(By.XPath(CurrentXPath));
+
+                AttributesManager.AddAttributesToChbListBox(element);
+
+                ParsingPageConfiguration existingPageConfig = ParsingPageConfigurations.FirstOrDefault(pageConfig => pageConfig.PageUrl == WebDriverActions.GetBaseUrl(CaptureDriver.Url));
+
+                if (existingPageConfig != null)
                 {
-                    AddControlToFlowLayoutPanel(attribute);
+                    ParsingElementConfiguration existingElementConfig = existingPageConfig.ParsingElements.FirstOrDefault(elementConfig => elementConfig.ElementXPath == CurrentXPath);
+
+                    if (existingElementConfig != null)
+                    {
+                        ParsingConfigurationManager.GetExistingSettings(existingElementConfig);
+                    }
                 }
             }
+            catch (StaleElementReferenceException ex)
+            {
+                Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                MessageBox.Show("Элемент устарел, попробуйте снова", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                Console.WriteLine($"ObjectDisposedException: {ex.Message}");
+                MessageBox.Show("Объект уже был удален, попробуйте снова", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                MessageBox.Show("Произошла ошибка, элементы могли быть не загружены до конца", "Предупреждение", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                Console.WriteLine("Парсинг успешен!");
+
+                //string removeOverlayScript = $@"
+                //var overlay = document.getElementById('{overlayId}');
+                //if (overlay) {{
+                //    overlay.parentNode.removeChild(overlay);
+                //}}
+                //";
+                //((IJavaScriptExecutor)CaptureDriver).ExecuteScript(removeOverlayScript);
+
+                Console.WriteLine("Удаление защитного слоя успешно!");
+
+                UpdateControlEnabled(chbListBox, true);
+                UpdateControlVisible(lbLoading, false);
+
+                Console.WriteLine("Обновление UI успешно!");
+            }
         }
 
-        private void AddControlToFlowLayoutPanel(string attribute)
-        {
-            if (flowLayoutPanel1.InvokeRequired)
-            {
-                flowLayoutPanel1.Invoke(new MethodInvoker(() => flowLayoutPanel1.Controls.Add(new ucAction(attribute))));
-            }
-            else
-            {
-                flowLayoutPanel1.Controls.Add(new ucAction(attribute));
-            }
-        }
-
-        private void UpdateXPathTextBox(IWebElement element)
-        {
-            if (txtXPath.InvokeRequired)
-            {
-                txtXPath.Invoke(new MethodInvoker(() => txtXPath.Text = WebDriverManager.GetFullXPath(element)));
-            }
-            else
-            {
-                txtXPath.Text = WebDriverManager.GetFullXPath(element);
-            }
-        }
-
-        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        private void QuitDrivers(object sender, EventArgs e)
         {
             WebDriverManager.QuitDrivers();
         }
 
-        private void btStart_Click(object sender, EventArgs e)
+        #region UpdateUI
+        private static void UpdateControlText(Control control, string text)
         {
-            string XPath = txtXPath.Text;
-            string[] parts = XPath.Split('/');
-            int lastNumberIndex = WebDriverManager.FindLastNumberIndex(parts);
-            if (lastNumberIndex > 0)
+            if (control.InvokeRequired)
             {
-                ProcessElements(parts, lastNumberIndex, XPath);
+                control.Invoke(new MethodInvoker(() => control.Text = text));
             }
             else
             {
-                Console.WriteLine("Элемент с числом не найден.");
+                control.Text = text;
             }
         }
 
-        private void ProcessElements(string[] parts, int lastNumberIndex, string elementXPath)
+        private static void UpdateControlEnabled(Control control, bool enabled)
         {
-            string clickedElementNameTag = parts[lastNumberIndex].Split('[')[0];
-            string clickedParentElementXpath = string.Join("/", parts.Take(lastNumberIndex));
-            var clickedParentElement = CaptureDriver.FindElement(By.XPath(clickedParentElementXpath));
-            var clickedElements = clickedParentElement.FindElements(By.TagName(clickedElementNameTag)).Distinct();
-
-            HashSet<string> elementsForParsing = new HashSet<string>();
-
-            foreach (var clickedElement in clickedElements)
+            if (control.InvokeRequired)
             {
-                string attributes = "";
-                string elementText = WebDriverManager.GetElementText(clickedElement);
-
-                foreach (var attributeList in WebDriverManager.GetAllAttributes(clickedElement).Where(attributeList => !elementsForParsing.Contains(attributeList.Key)))
-                {
-                    elementsForParsing.Add(attributeList.Key);
-                }
-
-                Console.WriteLine($"{clickedElement.TagName} Attributes: {attributes}");
-                Console.WriteLine($"Element Text: {elementText}");
+                control.Invoke(new MethodInvoker(() => control.Enabled = enabled));
             }
-
-            PerformActions(elementXPath);
-
-            foreach (var downloadAttribute in DownloadAttributeActions)
+            else
             {
-                downloadAttribute.StartAction();
-            }
-            foreach (var exportIdAttribute in ExportIdAttributeActions)
-            {
-                exportIdAttribute.StartAction();
-            }
-            foreach (var exportAttribute in ExportAttributeActions)
-            {
-                exportAttribute.StartAction();
-            }
-            foreach (var openUrlAttribute in OpenUrlAttributeActions)
-            {
-                openUrlAttribute.StartAction();
+                control.Enabled = enabled;
             }
         }
 
-        private void PerformActions(string elementXPath)
+        private static void UpdateControlVisible(Control control, bool visible)
         {
-            try
+            if (control.InvokeRequired)
             {
-                foreach (ucAction actionControl in flowLayoutPanel1.Controls)
-                {
-                    string attributeName = actionControl.lbAttribute.Text;
-                    string selectedAction = actionControl.cbActions.SelectedItem.ToString();
-
-                    switch (selectedAction)
-                    {
-                        case "Скачать файл по ссылке из атрибута":
-                            AttributeActions downloadAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.DownloadFile);
-                            DownloadAttributeActions.Add(downloadAttributeAction);
-                            break;
-
-                        case "Запомнить и потом перейти по ссылке из атрибута":
-                            AttributeActions openUrlAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.None);
-                            OpenUrlAttributeActions.Add(openUrlAttributeAction);
-                            break;
-
-                        case "Экспортировать Id из ссылки":
-                            AttributeActions exportIdAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.DownloadIdFromURL);
-                            ExportIdAttributeActions.Add(exportIdAttributeAction);
-                            break;
-
-                        case "Экспортировать текст атрибута":
-                            AttributeActions exportAttributeAction = new AttributeActions(CaptureDriver, DriverWait, WebDriverManager, FilesDownloader, DownloadFilesFolder, CaptureDriver.Url, elementXPath, attributeName, ParserActionType.DownloadAttributes);
-                            ExportAttributeActions.Add(exportAttributeAction);
-                            break;
-                    }
-                }
+                control.Invoke(new MethodInvoker(() => control.Visible = visible));
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message); }
+            else
+            {
+                control.Visible = visible;
+            }
+        }
+        #endregion
+
+        #region FormElements
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            QuitDrivers(sender, e);
+        }
+
+        private void btStart_Click(object sender, EventArgs e)
+        {
+            Console.WriteLine("Запуск парсинга");
+
+            WebDriverManager.EditBlockNavigation(false);
+
+            StaticParsingPageConfigurations = ParsingPageConfigurations;
+
+            btStart.Enabled = false;
+
+            SaveElementActions();
+
+            var page = ParsingPageConfigurations.FirstOrDefault(p => p.PageUrl == WebDriverActions.GetBaseUrl(txtStartPage.Text));
+
+            if (page != null)
+            {
+                Console.WriteLine("Запуск парсинга, cтатус: Успех");
+                page.StartParsing(false, txtStartPage.Text);
+            }
+            else
+            {
+                // Обработка случая, когда страница не найдена
+                Console.WriteLine("Запуск парсинга, cтатус: Неудача");
+                MessageBox.Show("Конфигурация для страницы не найдена", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
+            WebDriverManager.EditBlockNavigation(!chbGoToUrl.Checked);
+
+            btStart.Enabled = true;
         }
 
         private void chbGoToUrl_CheckedChanged(object sender, EventArgs e)
         {
             WebDriverManager.EditBlockNavigation(!chbGoToUrl.Checked);
+        }
+        #endregion
+
+        private void SaveElementActions()
+        {
+            List<ucAction> ucsList = flowLayoutPanel1.Controls.OfType<ucAction>().ToList();
+
+            ParsingConfigurationManager.SaveElementActions(CurrentXPath, ref ParsingPageConfigurations, ucsList);
+        }
+
+        public static List<ParsingPageConfiguration> GetParsingPageConfigurations()
+        {
+            return StaticParsingPageConfigurations;
         }
     }
 }
